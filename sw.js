@@ -2,15 +2,15 @@
    IMPORTANTE: cada vez que publiques cambios, sube el número de CACHE
    (p. ej. "cadeteB-v2") para que los móviles descarguen la versión nueva. */
 const PREFIX = "cadeteB-";
-const CACHE = PREFIX + "v1";
+const CACHE = PREFIX + "v2";
 const ASSETS = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
-  "./icons/icon-192.png",
-  "./icons/icon-512.png",
-  "./icons/icon-maskable-512.png",
-  "./icons/apple-touch-icon.png"
+  "./icon-192.png",
+  "./icon-512.png",
+  "./icon-maskable-512.png",
+  "./apple-touch-icon.png"
 ];
 
 self.addEventListener("install", e => {
