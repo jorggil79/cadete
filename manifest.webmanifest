@@ -1,0 +1,20 @@
+{
+  "name": "Cadete B · Baloncesto",
+  "short_name": "Cadete B",
+  "description": "Clasificación, resultados y estadísticas de jugadores del Cadete Masculino Grupo B.",
+  "lang": "es",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f5f9",
+  "theme_color": "#1F3864",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Partidos", "url": "./#part" },
+    { "name": "Jugadores", "url": "./#jug" }
+  ]
+}

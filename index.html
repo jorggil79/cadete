@@ -1,0 +1,595 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F3864">
+<meta name="description" content="Clasificación, resultados y estadísticas de jugadores del Cadete Masculino Grupo B.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Cadete B">
+<title>Cadete B</title>
+<style>
+:root{--bg:#f3f5f9;--card:#fff;--ink:#1b2333;--mute:#6b7488;--pri:#1F3864;--onpri:#fff;--acc:#e8710a;--ok:#1e8e3e;--bad:#c5221f;--line:#e1e5ee;--hl:#fff2cc;--soft:#eef1f7}
+@media (prefers-color-scheme:dark){:root{--bg:#10141c;--card:#1a2130;--ink:#e8ecf4;--mute:#97a1b8;--pri:#7aa2f7;--onpri:#0d1526;--line:#2a3347;--hl:#3b3520;--soft:#222b3d;--bad:#f28b82;--ok:#81c995}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);padding-bottom:calc(68px + env(safe-area-inset-bottom))}
+header{background:#1F3864;color:#fff;padding:calc(12px + env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 12px max(16px,env(safe-area-inset-left));position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:10px}
+header .ti{flex:1;min-width:0}
+header h1{margin:0;font-size:17px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header small{opacity:.8;font-size:12px}
+#st{font-size:12px;opacity:.85;white-space:nowrap}
+main{padding:12px max(16px,env(safe-area-inset-right)) 12px max(16px,env(safe-area-inset-left));max-width:760px;margin:0 auto}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:var(--card);border-top:1px solid var(--line);z-index:6;padding:0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+#upd{position:fixed;left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:15;background:var(--card);border:1px solid var(--line);border-radius:12px;box-shadow:0 4px 18px rgba(0,0,0,.2);padding:10px 12px;display:flex;align-items:center;gap:10px;font-size:14px;max-width:520px;margin:0 auto}
+#upd.hide{display:none}
+nav button{flex:1;border:0;background:none;padding:9px 2px;font-size:12px;color:var(--mute);display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer;font-family:inherit}
+nav button span{font-size:20px}nav button.on{color:var(--pri);font-weight:700}
+.card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+h2{font-size:15px;margin:0 0 8px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{background:#1F3864;color:#fff;padding:7px 3px;font-weight:600;text-align:center}
+th.s{cursor:pointer;user-select:none}th.s.on{background:var(--acc)}
+td{padding:8px 3px;text-align:center;border-bottom:1px solid var(--line)}
+td.t{text-align:left;max-width:140px}
+td.t b,td.t small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+td.t small{color:var(--mute);font-size:11px;font-weight:400}
+tr.me td{background:var(--hl);font-weight:700}td.pts{font-weight:700}
+table.lb tr[data-id]{cursor:pointer}
+.row{display:flex;gap:8px;align-items:center}.wrap{flex-wrap:wrap}
+.jnav{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.jnav select{flex:1;min-width:0;font-size:16px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.btn{border:0;background:var(--pri);color:var(--onpri);padding:10px 14px;border-radius:10px;font-size:15px;cursor:pointer;font-family:inherit}
+.btn.sec{background:var(--card);color:var(--pri);border:1px solid var(--line)}
+.btn.bad{background:var(--bad);color:#fff}
+.lnk{border:0;background:none;color:var(--pri);font-size:12px;padding:4px 0;cursor:pointer;text-decoration:underline;font-family:inherit}
+.match{display:grid;grid-template-columns:1fr 58px;gap:6px 8px;align-items:center}
+.match .tn{font-size:14px;overflow:hidden;text-overflow:ellipsis}
+.match .mm{grid-column:1/-1;font-size:12px;color:var(--mute);margin-top:-2px}
+.match.me{background:var(--hl);margin:-4px;padding:4px;border-radius:8px}
+.sc{width:100%;font-size:20px;text-align:center;padding:8px 2px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-weight:700}
+.sc:focus,.ctl input:focus{outline:2px solid var(--acc)}
+.sep{height:1px;background:var(--line);margin:10px 0}
+.badge{font-size:11px;padding:2px 7px;border-radius:99px;background:var(--line);color:var(--mute);font-weight:400}
+select.big,input.txt{width:100%;font-size:16px;padding:10px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);margin:4px 0 8px;font-family:inherit}
+label.f{display:block;font-size:13px;color:var(--mute)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:99px;padding:6px 12px;font-size:13px;cursor:pointer;font-family:inherit}
+.chip.on{background:var(--pri);border-color:var(--pri);color:var(--onpri)}
+.mini{display:grid;gap:8px}
+.mini div{background:var(--soft);border-radius:10px;padding:8px 10px;font-size:14px}
+.mini span{display:block;font-size:12px;color:var(--mute)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.stat{background:var(--soft);border-radius:10px;padding:8px 4px;text-align:center}
+.stat b{display:block;font-size:22px;color:var(--pri)}
+.stat span{display:block;font-size:11px;color:var(--mute)}
+.stat em{display:block;font-style:normal;font-size:12px;margin-top:2px}
+.bars{display:flex;align-items:flex-end;gap:3px;height:90px;margin-top:18px}
+.bars div{flex:1;background:var(--pri);border-radius:3px 3px 0 0;position:relative;min-height:2px}
+.bars div i{position:absolute;top:-14px;left:0;right:0;text-align:center;font-size:9px;font-style:normal;color:var(--mute)}
+.bx{display:flex;gap:3px;margin-top:3px}.bx span{flex:1;text-align:center;font-size:9px;color:var(--mute)}
+.jr{display:grid;grid-template-columns:1fr repeat(4,36px);gap:4px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);cursor:pointer}
+.jr.hd{cursor:default;padding:0 0 4px;font-size:11px;color:var(--mute)}
+.jr .ttl{font-size:13px;min-width:0}.jr .ttl b{font-size:14px}
+.jr .sub{color:var(--mute);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jr .v{text-align:center;font-weight:700;font-size:15px}
+.jr.hd .v{font-weight:600;font-size:11px}
+.jr.no .v{color:var(--mute);font-weight:400}
+.v.f5{color:var(--bad)}
+.note{font-size:12px;color:var(--mute)}
+.center{text-align:center}
+.warn{background:rgba(197,34,31,.12);border:1px solid rgba(197,34,31,.35);border-radius:10px;padding:10px;font-size:13px;margin-bottom:10px}
+.tl{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.tl span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+details summary{cursor:pointer;font-weight:700;font-size:15px}
+dialog{border:0;border-radius:16px;padding:0;width:min(440px,calc(100vw - 24px));max-height:calc(100dvh - 24px);overflow:auto;background:var(--card);color:var(--ink);box-shadow:0 10px 40px rgba(0,0,0,.35)}
+dialog::backdrop{background:rgba(10,15,25,.55)}
+.dh{padding:14px 16px;border-bottom:1px solid var(--line)}.dh b{font-size:16px}.dh div{font-size:12px;color:var(--mute);margin-top:2px}
+.db{padding:12px 16px}
+.df{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);align-items:center}
+.er{margin-bottom:12px}.er .el{font-size:13px;color:var(--mute);margin-bottom:4px}
+.ctl{display:flex;gap:6px}
+.ctl button{min-width:44px;height:44px;border:1px solid var(--line);background:var(--soft);color:var(--ink);border-radius:10px;font-size:17px;font-weight:600;cursor:pointer;font-family:inherit}
+.ctl input{width:64px;height:44px;text-align:center;font-size:22px;font-weight:700;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.ctl input.f5{background:rgba(197,34,31,.15);color:var(--bad)}
+#toast{position:fixed;left:50%;bottom:calc(80px + env(safe-area-inset-bottom));transform:translate(-50%,20px);background:#1b2333;color:#fff;padding:10px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;z-index:20;max-width:calc(100vw - 32px)}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+.hide{display:none}
+</style>
+</head>
+<body>
+<header><div class="ti"><h1>Cadete Masculino · Grupo B</h1><small>Fase Regular</small></div><div id="st"></div></header>
+<main id="app"><noscript>Esta app necesita JavaScript.</noscript></main>
+<nav>
+ <button data-t="clas"><span>🏆</span>Clasificación</button>
+ <button data-t="part"><span>🏀</span>Partidos</button>
+ <button data-t="jug"><span>👥</span>Jugadores</button>
+ <button data-t="aju"><span>⚙️</span>Ajustes</button>
+</nav>
+<dialog id="dlg"></dialog>
+<div id="upd" class="hide"><span style="flex:1">Hay una versión nueva de la app.</span><button class="btn" id="updb">Actualizar</button></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script>
+"use strict";
+const VERSION = "1.0.0";
+const DEF_TEAMS = ["APOSTOLADO - BLANCO", "BALONCESTO LA FLECHA - A", "TIERNO GALVAN", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - B", "SAN JOSE - IGNACIO", "CB VILLA DE LAGUNA - BLANCO", "LOURDES - BUJEDO", "CD MARISTAS CCV - BLANCO", "LA ENSEÑANZA - B", "CONDESA EYLO - OCIO-SPORT", "EL PILAR", "IVECO CBC-ELALO - 2012", "CD RENEDO 2018", "LA SALLE", "CD MARISTAS CCV - AZUL", "SAN AGUSTIN", "BASKET LA CISTERNIGA"];
+const DEF_MATCHES = [[1, "2026-11-07", "APOSTOLADO - BLANCO", "BALONCESTO LA FLECHA - A"], [1, "2026-11-07", "TIERNO GALVAN", "AYTO. SANTOVENIA"], [1, "2026-11-07", "BALONCESTO LA FLECHA - B", "SAN JOSE - IGNACIO"], [1, "2026-11-07", "CB VILLA DE LAGUNA - BLANCO", "LOURDES - BUJEDO"], [1, "2026-11-07", "CD MARISTAS CCV - BLANCO", "LA ENSEÑANZA - B"], [1, "2026-11-07", "CONDESA EYLO - OCIO-SPORT", "EL PILAR"], [1, "2026-11-07", "IVECO CBC-ELALO - 2012", "CD RENEDO 2018"], [1, "2026-11-07", "LA SALLE", "CD MARISTAS CCV - AZUL"], [1, "2026-11-07", "SAN AGUSTIN", "BASKET LA CISTERNIGA"], [2, "2026-11-14", "SAN JOSE - IGNACIO", "CB VILLA DE LAGUNA - BLANCO"], [2, "2026-11-14", "LOURDES - BUJEDO", "CD MARISTAS CCV - BLANCO"], [2, "2026-11-14", "LA ENSEÑANZA - B", "CONDESA EYLO - OCIO-SPORT"], [2, "2026-11-14", "EL PILAR", "IVECO CBC-ELALO - 2012"], [2, "2026-11-14", "CD RENEDO 2018", "LA SALLE"], [2, "2026-11-14", "CD MARISTAS CCV - AZUL", "SAN AGUSTIN"], [2, "2026-11-14", "BASKET LA CISTERNIGA", "APOSTOLADO - BLANCO"], [2, "2026-11-14", "BALONCESTO LA FLECHA - A", "TIERNO GALVAN"], [2, "2026-11-14", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - B"], [3, "2026-11-21", "TIERNO GALVAN", "BALONCESTO LA FLECHA - B"], [3, "2026-11-21", "CB VILLA DE LAGUNA - BLANCO", "AYTO. SANTOVENIA"], [3, "2026-11-21", "CD MARISTAS CCV - BLANCO", "SAN JOSE - IGNACIO"], [3, "2026-11-21", "CONDESA EYLO - OCIO-SPORT", "LOURDES - BUJEDO"], [3, "2026-11-21", "IVECO CBC-ELALO - 2012", "LA ENSEÑANZA - B"], [3, "2026-11-21", "LA SALLE", "EL PILAR"], [3, "2026-11-21", "SAN AGUSTIN", "CD RENEDO 2018"], [3, "2026-11-21", "APOSTOLADO - BLANCO", "CD MARISTAS CCV - AZUL"], [3, "2026-11-21", "BALONCESTO LA FLECHA - A", "BASKET LA CISTERNIGA"], [4, "2026-12-12", "LOURDES - BUJEDO", "IVECO CBC-ELALO - 2012"], [4, "2026-12-12", "LA ENSEÑANZA - B", "LA SALLE"], [4, "2026-12-12", "EL PILAR", "SAN AGUSTIN"], [4, "2026-12-12", "CD RENEDO 2018", "APOSTOLADO - BLANCO"], [4, "2026-12-12", "CD MARISTAS CCV - AZUL", "BALONCESTO LA FLECHA - A"], [4, "2026-12-12", "BASKET LA CISTERNIGA", "TIERNO GALVAN"], [4, "2026-12-12", "BALONCESTO LA FLECHA - B", "CB VILLA DE LAGUNA - BLANCO"], [4, "2026-12-12", "AYTO. SANTOVENIA", "CD MARISTAS CCV - BLANCO"], [4, "2026-12-12", "SAN JOSE - IGNACIO", "CONDESA EYLO - OCIO-SPORT"], [5, "2026-12-19", "TIERNO GALVAN", "CB VILLA DE LAGUNA - BLANCO"], [5, "2026-12-19", "CD MARISTAS CCV - BLANCO", "BALONCESTO LA FLECHA - B"], [5, "2026-12-19", "CONDESA EYLO - OCIO-SPORT", "AYTO. SANTOVENIA"], [5, "2026-12-19", "IVECO CBC-ELALO - 2012", "SAN JOSE - IGNACIO"], [5, "2026-12-19", "LA SALLE", "LOURDES - BUJEDO"], [5, "2026-12-19", "SAN AGUSTIN", "LA ENSEÑANZA - B"], [5, "2026-12-19", "APOSTOLADO - BLANCO", "EL PILAR"], [5, "2026-12-19", "BALONCESTO LA FLECHA - A", "CD RENEDO 2018"], [5, "2026-12-19", "BASKET LA CISTERNIGA", "CD MARISTAS CCV - AZUL"], [6, "2027-01-16", "LA ENSEÑANZA - B", "APOSTOLADO - BLANCO"], [6, "2027-01-16", "EL PILAR", "BALONCESTO LA FLECHA - A"], [6, "2027-01-16", "CD RENEDO 2018", "BASKET LA CISTERNIGA"], [6, "2027-01-16", "CD MARISTAS CCV - AZUL", "TIERNO GALVAN"], [6, "2027-01-16", "CB VILLA DE LAGUNA - BLANCO", "CD MARISTAS CCV - BLANCO"], [6, "2027-01-16", "BALONCESTO LA FLECHA - B", "CONDESA EYLO - OCIO-SPORT"], [6, "2027-01-16", "AYTO. SANTOVENIA", "IVECO CBC-ELALO - 2012"], [6, "2027-01-16", "SAN JOSE - IGNACIO", "LA SALLE"], [6, "2027-01-16", "LOURDES - BUJEDO", "SAN AGUSTIN"], [7, "2027-01-23", "TIERNO GALVAN", "CD MARISTAS CCV - BLANCO"], [7, "2027-01-23", "CONDESA EYLO - OCIO-SPORT", "CB VILLA DE LAGUNA - BLANCO"], [7, "2027-01-23", "IVECO CBC-ELALO - 2012", "BALONCESTO LA FLECHA - B"], [7, "2027-01-23", "LA SALLE", "AYTO. SANTOVENIA"], [7, "2027-01-23", "SAN AGUSTIN", "SAN JOSE - IGNACIO"], [7, "2027-01-23", "APOSTOLADO - BLANCO", "LOURDES - BUJEDO"], [7, "2027-01-23", "BALONCESTO LA FLECHA - A", "LA ENSEÑANZA - B"], [7, "2027-01-23", "BASKET LA CISTERNIGA", "EL PILAR"], [7, "2027-01-23", "CD MARISTAS CCV - AZUL", "CD RENEDO 2018"], [8, "2027-01-30", "EL PILAR", "CD MARISTAS CCV - AZUL"], [8, "2027-01-30", "CD RENEDO 2018", "TIERNO GALVAN"], [8, "2027-01-30", "CD MARISTAS CCV - BLANCO", "CONDESA EYLO - OCIO-SPORT"], [8, "2027-01-30", "CB VILLA DE LAGUNA - BLANCO", "IVECO CBC-ELALO - 2012"], [8, "2027-01-30", "BALONCESTO LA FLECHA - B", "LA SALLE"], [8, "2027-01-30", "AYTO. SANTOVENIA", "SAN AGUSTIN"], [8, "2027-01-30", "SAN JOSE - IGNACIO", "APOSTOLADO - BLANCO"], [8, "2027-01-30", "LOURDES - BUJEDO", "BALONCESTO LA FLECHA - A"], [8, "2027-01-30", "LA ENSEÑANZA - B", "BASKET LA CISTERNIGA"], [9, "2027-02-13", "TIERNO GALVAN", "CONDESA EYLO - OCIO-SPORT"], [9, "2027-02-13", "IVECO CBC-ELALO - 2012", "CD MARISTAS CCV - BLANCO"], [9, "2027-02-13", "LA SALLE", "CB VILLA DE LAGUNA - BLANCO"], [9, "2027-02-13", "SAN AGUSTIN", "BALONCESTO LA FLECHA - B"], [9, "2027-02-13", "APOSTOLADO - BLANCO", "AYTO. SANTOVENIA"], [9, "2027-02-13", "BALONCESTO LA FLECHA - A", "SAN JOSE - IGNACIO"], [9, "2027-02-13", "BASKET LA CISTERNIGA", "LOURDES - BUJEDO"], [9, "2027-02-13", "CD MARISTAS CCV - AZUL", "LA ENSEÑANZA - B"], [9, "2027-02-13", "CD RENEDO 2018", "EL PILAR"], [10, "2027-02-20", "CONDESA EYLO - OCIO-SPORT", "IVECO CBC-ELALO - 2012"], [10, "2027-02-20", "CD MARISTAS CCV - BLANCO", "LA SALLE"], [10, "2027-02-20", "CB VILLA DE LAGUNA - BLANCO", "SAN AGUSTIN"], [10, "2027-02-20", "BALONCESTO LA FLECHA - B", "APOSTOLADO - BLANCO"], [10, "2027-02-20", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - A"], [10, "2027-02-20", "SAN JOSE - IGNACIO", "BASKET LA CISTERNIGA"], [10, "2027-02-20", "LOURDES - BUJEDO", "CD MARISTAS CCV - AZUL"], [10, "2027-02-20", "LA ENSEÑANZA - B", "CD RENEDO 2018"], [10, "2027-02-20", "EL PILAR", "TIERNO GALVAN"], [11, "2027-02-27", "SAN AGUSTIN", "CD MARISTAS CCV - BLANCO"], [11, "2027-02-27", "APOSTOLADO - BLANCO", "CB VILLA DE LAGUNA - BLANCO"], [11, "2027-02-27", "BALONCESTO LA FLECHA - A", "BALONCESTO LA FLECHA - B"], [11, "2027-02-27", "BASKET LA CISTERNIGA", "AYTO. SANTOVENIA"], [11, "2027-02-27", "CD MARISTAS CCV - AZUL", "SAN JOSE - IGNACIO"], [11, "2027-02-27", "CD RENEDO 2018", "LOURDES - BUJEDO"], [11, "2027-02-27", "EL PILAR", "LA ENSEÑANZA - B"], [11, "2027-02-27", "TIERNO GALVAN", "IVECO CBC-ELALO - 2012"], [11, "2027-02-27", "LA SALLE", "CONDESA EYLO - OCIO-SPORT"], [12, "2027-03-06", "IVECO CBC-ELALO - 2012", "LA SALLE"], [12, "2027-03-06", "CONDESA EYLO - OCIO-SPORT", "SAN AGUSTIN"], [12, "2027-03-06", "CD MARISTAS CCV - BLANCO", "APOSTOLADO - BLANCO"], [12, "2027-03-06", "CB VILLA DE LAGUNA - BLANCO", "BALONCESTO LA FLECHA - A"], [12, "2027-03-06", "BALONCESTO LA FLECHA - B", "BASKET LA CISTERNIGA"], [12, "2027-03-06", "AYTO. SANTOVENIA", "CD MARISTAS CCV - AZUL"], [12, "2027-03-06", "SAN JOSE - IGNACIO", "CD RENEDO 2018"], [12, "2027-03-06", "LOURDES - BUJEDO", "EL PILAR"], [12, "2027-03-06", "LA ENSEÑANZA - B", "TIERNO GALVAN"], [13, "2027-03-13", "BASKET LA CISTERNIGA", "CB VILLA DE LAGUNA - BLANCO"], [13, "2027-03-13", "CD MARISTAS CCV - AZUL", "BALONCESTO LA FLECHA - B"], [13, "2027-03-13", "CD RENEDO 2018", "AYTO. SANTOVENIA"], [13, "2027-03-13", "EL PILAR", "SAN JOSE - IGNACIO"], [13, "2027-03-13", "LA ENSEÑANZA - B", "LOURDES - BUJEDO"], [13, "2027-03-13", "TIERNO GALVAN", "LA SALLE"], [13, "2027-03-13", "SAN AGUSTIN", "IVECO CBC-ELALO - 2012"], [13, "2027-03-13", "APOSTOLADO - BLANCO", "CONDESA EYLO - OCIO-SPORT"], [13, "2027-03-13", "BALONCESTO LA FLECHA - A", "CD MARISTAS CCV - BLANCO"], [14, "2027-04-03", "LA SALLE", "SAN AGUSTIN"], [14, "2027-04-03", "IVECO CBC-ELALO - 2012", "APOSTOLADO - BLANCO"], [14, "2027-04-03", "CONDESA EYLO - OCIO-SPORT", "BALONCESTO LA FLECHA - A"], [14, "2027-04-03", "CD MARISTAS CCV - BLANCO", "BASKET LA CISTERNIGA"], [14, "2027-04-03", "CB VILLA DE LAGUNA - BLANCO", "CD MARISTAS CCV - AZUL"], [14, "2027-04-03", "BALONCESTO LA FLECHA - B", "CD RENEDO 2018"], [14, "2027-04-03", "AYTO. SANTOVENIA", "EL PILAR"], [14, "2027-04-03", "SAN JOSE - IGNACIO", "LA ENSEÑANZA - B"], [14, "2027-04-03", "LOURDES - BUJEDO", "TIERNO GALVAN"], [15, "2027-04-10", "EL PILAR", "BALONCESTO LA FLECHA - B"], [15, "2027-04-10", "LA ENSEÑANZA - B", "AYTO. SANTOVENIA"], [15, "2027-04-10", "LOURDES - BUJEDO", "SAN JOSE - IGNACIO"], [15, "2027-04-10", "TIERNO GALVAN", "SAN AGUSTIN"], [15, "2027-04-10", "APOSTOLADO - BLANCO", "LA SALLE"], [15, "2027-04-10", "BALONCESTO LA FLECHA - A", "IVECO CBC-ELALO - 2012"], [15, "2027-04-10", "BASKET LA CISTERNIGA", "CONDESA EYLO - OCIO-SPORT"], [15, "2027-04-10", "CD MARISTAS CCV - AZUL", "CD MARISTAS CCV - BLANCO"], [15, "2027-04-10", "CD RENEDO 2018", "CB VILLA DE LAGUNA - BLANCO"], [16, "2027-04-17", "IVECO CBC-ELALO - 2012", "BASKET LA CISTERNIGA"], [16, "2027-04-17", "CONDESA EYLO - OCIO-SPORT", "CD MARISTAS CCV - AZUL"], [16, "2027-04-17", "CD MARISTAS CCV - BLANCO", "CD RENEDO 2018"], [16, "2027-04-17", "CB VILLA DE LAGUNA - BLANCO", "EL PILAR"], [16, "2027-04-17", "BALONCESTO LA FLECHA - B", "LA ENSEÑANZA - B"], [16, "2027-04-17", "AYTO. SANTOVENIA", "LOURDES - BUJEDO"], [16, "2027-04-17", "TIERNO GALVAN", "SAN JOSE - IGNACIO"], [16, "2027-04-17", "SAN AGUSTIN", "APOSTOLADO - BLANCO"], [16, "2027-04-17", "LA SALLE", "BALONCESTO LA FLECHA - A"], [17, "2027-05-08", "APOSTOLADO - BLANCO", "TIERNO GALVAN"], [17, "2027-05-08", "BALONCESTO LA FLECHA - A", "SAN AGUSTIN"], [17, "2027-05-08", "BASKET LA CISTERNIGA", "LA SALLE"], [17, "2027-05-08", "CD MARISTAS CCV - AZUL", "IVECO CBC-ELALO - 2012"], [17, "2027-05-08", "CD RENEDO 2018", "CONDESA EYLO - OCIO-SPORT"], [17, "2027-05-08", "EL PILAR", "CD MARISTAS CCV - BLANCO"], [17, "2027-05-08", "LA ENSEÑANZA - B", "CB VILLA DE LAGUNA - BLANCO"], [17, "2027-05-08", "LOURDES - BUJEDO", "BALONCESTO LA FLECHA - B"], [17, "2027-05-08", "SAN JOSE - IGNACIO", "AYTO. SANTOVENIA"]]; // [jornada, "AAAA-MM-DD", local, visitante]
+const SK = [["p","Puntos","PTS"],["r","Rebotes","REB"],["t","Tapones","TAP"],["f","Faltas","FAL"]];
+const TABS = ["clas","part","jug","aju"];
+const MES = ["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+const DIA = ["dom","lun","mar","mié","jue","vie","sáb"];
+const fdate = s => { if(!/^\d{4}-\d{2}-\d{2}$/.test(s||"")) return "sin fecha"; const [y,m,d]=s.split("-").map(Number); return DIA[new Date(y,m-1,d).getDay()]+" "+d+" "+MES[m-1]; };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const num = x => (x===""||x==null||isNaN(+x)) ? null : Math.max(0, Math.min(999, Math.floor(+x)));
+const uid = () => "p"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const $ = id => document.getElementById(id);
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
+const standalone = () => (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone===true;
+
+/* ===================== Datos ===================== */
+const blank = () => ({v:2, teams:DEF_TEAMS.slice(), matches:DEF_MATCHES.map(([j,d,h,a])=>({j,d,h,a,np:"",s:[null,null]})),
+  players:[], cur:null, win:2, loss:1, draw:1, myTeam:"", jor:null, sort:"p", avg:false, chart:"p", rev:0});
+
+const MAXJ = 60;
+const cleanName = s => String(s ?? "").replace(/\s+/g," ").trim();
+function normStats(st){
+  const out = {};
+  if(st && typeof st==="object") for(const [j,x] of Object.entries(st)){
+    const jj = Math.round(+j);
+    if(!x || typeof x!=="object" || !(jj>=1 && jj<=MAXJ)) continue;
+    const v = {}; let any = false;
+    for(const [k] of SK){ const n = num(x[k]); if(n!==null) any = true; v[k] = n ?? 0; }
+    if(any) out[jj] = v;
+  }
+  return out;
+}
+// Acepta datos de esta app, de la versión anterior (scores por índice) y el archivo datos\cadeteB.json
+function normalize(d){
+  const o = blank();
+  if(!d || typeof d!=="object") return o;
+  if(Array.isArray(d.teams)){ const t = [...new Set(d.teams.map(cleanName).filter(Boolean))]; if(t.length) o.teams = t; }
+  if(Array.isArray(d.matches) && d.matches.length){
+    o.matches = d.matches.filter(m=>m&&typeof m==="object").map(m=>({
+      j:Math.min(MAXJ, Math.max(1, Math.round(+m.j)||1)), d:/^\d{4}-\d{2}-\d{2}$/.test(m.d)?m.d:"",
+      h:cleanName(m.h), a:cleanName(m.a), np:(m.np==="h"||m.np==="a")?m.np:"",
+      s:[num(Array.isArray(m.s)?m.s[0]:null), num(Array.isArray(m.s)?m.s[1]:null)]})).filter(m=>m.h&&m.a);
+    if(!o.matches.length) o.matches = blank().matches;
+  } else if(d.scores && typeof d.scores==="object"){
+    for(const [i,s] of Object.entries(d.scores)){ const m = o.matches[+i]; if(m && Array.isArray(s)) m.s = [num(s[0]), num(s[1])]; }
+  }
+  o.matches.forEach(m=>{ for(const t of [m.h,m.a]) if(!o.teams.includes(t)) o.teams.push(t); });   // ningún partido con equipo desconocido
+  const seen = new Set();
+  o.players = (Array.isArray(d.players)?d.players:[]).filter(p=>p&&typeof p==="object").map(p=>{
+    let id = String(p.id||""); if(!id || seen.has(id)) id = uid(); seen.add(id);
+    const team = cleanName(p.team);
+    return {id, name:(cleanName(p.name)||"Jugador").slice(0,60), num:String(p.num??"").replace(/\D/g,"").slice(0,3),
+      team:o.teams.includes(team)?team:"", stats:normStats(p.stats)}; });
+  for(const k of ["win","loss","draw"]) if(d[k]!=="" && d[k]!=null && Number.isFinite(+d[k])) o[k] = +d[k];
+  o.myTeam = o.teams.includes(cleanName(d.myTeam)) ? cleanName(d.myTeam) : "";
+  o.cur = o.players.some(p=>p.id===d.cur) ? d.cur : (o.players[0]?.id || null);
+  if(["pj",...SK.map(x=>x[0])].includes(d.sort)) o.sort = d.sort;
+  if(SK.some(x=>x[0]===d.chart)) o.chart = d.chart;
+  o.avg = !!d.avg;
+  o.rev = Math.max(0, Math.floor(+d.rev) || 0);
+  return o;
+}
+
+/* ===== Almacenamiento en el dispositivo =====
+   Cada guardado va a IndexedDB y además a localStorage (copia de respaldo).
+   Al arrancar se usa la copia más reciente (campo rev). Si otra ventana de la
+   app ha guardado algo más nuevo, no se sobrescribe: se cargan sus datos. */
+const DBN = "cadeteB", STN = "estado", KEY = "S", LS_KEY = "cadeteB_pwa", PREV_KEY = "cadeteB_prev";
+let store = "idb", dbp = null, baseRev = 0;
+function db(){ if(!dbp) dbp = new Promise((res,rej)=>{ const r = indexedDB.open(DBN,1);
+  r.onupgradeneeded = () => r.result.createObjectStore(STN);
+  r.onsuccess = () => { const d = r.result; d.onclose = () => { dbp = null; }; d.onversionchange = () => { d.close(); dbp = null; }; res(d); };
+  r.onerror = () => rej(r.error); r.onblocked = () => rej(new Error("blocked")); });
+  dbp.catch(() => { dbp = null; });
+  return dbp; }
+async function idbGet(k){ const d = await db(); return new Promise((res,rej)=>{ const q = d.transaction(STN).objectStore(STN).get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); }); }
+async function idbPut(k,v){ const d = await db(); return new Promise((res,rej)=>{ const tx = d.transaction(STN,"readwrite"); tx.objectStore(STN).put(v,k); tx.oncomplete=()=>res(); tx.onerror=tx.onabort=()=>rej(tx.error); }); }
+function lsGet(k){ try{ return JSON.parse(localStorage.getItem(k)||"null"); }catch(e){ return null; } }
+const newest = (...xs) => xs.filter(x=>x&&typeof x==="object").sort((a,b)=>(+b.rev||0)-(+a.rev||0))[0] || null;
+async function readIdb(tries){ for(let i=0;i<tries;i++){ try{ return {ok:true, d:await idbGet(KEY)}; }catch(e){ dbp = null; } } return {ok:false, d:null}; }
+async function readLatest(){ const a = await readIdb(1); return newest(a.d, lsGet(LS_KEY)); }
+
+async function loadState(){
+  const a = window.indexedDB ? await readIdb(2) : {ok:false, d:null};
+  let lsOk = true; try{ localStorage.setItem("__t","1"); localStorage.removeItem("__t"); }catch(e){ lsOk = false; }
+  store = a.ok ? "idb" : lsOk ? "ls" : "mem";
+  const best = newest(a.d, lsOk ? lsGet(LS_KEY) : null);
+  baseRev = best ? (+best.rev || 0) : 0;
+  return normalize(best);
+}
+
+let tSave = null, saving = Promise.resolve(), pending = false, askedPersist = false, retryT = null;
+function save(){ pending = true; clearTimeout(tSave); tSave = setTimeout(flush, 250); setSt("pend"); }
+function flush(){
+  clearTimeout(tSave);
+  if(!pending) return saving;
+  saving = saving.then(async()=>{
+    if(!pending) return;
+    if(store==="mem"){ pending = false; setSt("mem"); return; }
+    const latest = await readLatest();
+    if(latest && (+latest.rev||0) > baseRev){          // otra ventana guardó después: no pisar sus datos
+      pending = false; adopt(latest); setSt("ok");
+      toast("Había cambios más recientes de otra ventana y se han cargado. Repite tu último cambio."); return; }
+    pending = false;
+    const snap = JSON.parse(JSON.stringify(S)); snap.rev = baseRev + 1; snap.savedAt = new Date().toISOString();
+    let ok = false;
+    try{ await idbPut(KEY, snap); ok = true; }catch(e){ dbp = null; console.warn(e); }
+    try{ localStorage.setItem(LS_KEY, JSON.stringify(snap)); ok = true; }catch(e){ console.warn(e); }
+    if(ok){ baseRev = S.rev = snap.rev; try{ bc && bc.postMessage(snap.rev); }catch(e){} setSt(pending ? "pend" : "ok"); }
+    else{ pending = true; setSt("err"); clearTimeout(retryT); retryT = setTimeout(flush, 4000); }
+  });
+  if(!askedPersist && store!=="mem"){ askedPersist = true; try{ navigator.storage?.persist?.().catch(()=>{}); }catch(e){} }
+  return saving;
+}
+// Cargar datos guardados por otra ventana (sin perder la jornada que se está viendo)
+function adopt(d){ const jor = S.jor; S = normalize(d); baseRev = S.rev; S.jor = jor; initJor(); if(!S.players.some(p=>p.id===S.cur)) view = "list"; if(!dlg.open) render(); }
+async function syncFromStore(){
+  if(pending || store==="mem" || dlg.open) return;
+  const latest = await readLatest();
+  if(latest && (+latest.rev||0) > baseRev && !pending) adopt(latest);
+}
+const bc = "BroadcastChannel" in window ? new BroadcastChannel("cadeteB") : null;
+if(bc) bc.onmessage = () => syncFromStore();
+let swReg = null;
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState==="hidden") flush();
+  else{ syncFromStore(); if(swReg) swReg.update().catch(()=>{}); } });
+window.addEventListener("pagehide", () => flush());
+
+function setSt(k){
+  const el = $("st");
+  el.textContent = {ok:"✓ Guardado", pend:"Guardando…", err:"⚠️ Error al guardar", mem:"⚠️ Sin guardar"}[k] || "";
+  el.title = k==="ok" ? "Guardado en este dispositivo" : "";
+}
+function toast(t){ const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(()=>el.classList.remove("on"), 2200); }
+
+/* ===================== Cálculos ===================== */
+let S = blank(), tab = "clas", view = "list", deferredPrompt = null;
+const played = m => m.s && m.s[0]!=null && m.s[1]!=null;
+const nj = () => Math.max(1, ...S.matches.map(m=>m.j));
+const byDate = (a,b) => (a.d||"").localeCompare(b.d||"") || a.j-b.j;
+const jorDate = j => S.matches.filter(m=>m.j===j).map(m=>m.d).filter(Boolean).sort()[0] || "";
+const todayLocal = () => { const t = new Date(); return t.getFullYear()+"-"+String(t.getMonth()+1).padStart(2,"0")+"-"+String(t.getDate()).padStart(2,"0"); };
+function initJor(force){ if(force || !S.jor || S.jor>nj()){ const today = todayLocal(); const m = S.matches.slice().sort(byDate).find(x=>x.d>=today && !played(x)); S.jor = m ? m.j : nj(); } }
+
+// Puntos de clasificación de un partido para el local (h) o el visitante (a)
+function clsPts(m, side){ const me = side==="h"?m.s[0]:m.s[1], ot = side==="h"?m.s[1]:m.s[0];
+  return me>ot ? S.win : me<ot ? (m.np===side ? 0 : S.loss) : S.draw; }
+function standings(){
+  const t = {}; S.teams.forEach(n=>t[n]={n,pj:0,pg:0,pe:0,pp:0,pf:0,pc:0,pts:0,hp:0,hd:0,hf:0});
+  S.matches.forEach(m=>{ if(!played(m)) return; const L=t[m.h], V=t[m.a]; if(!L||!V) return;
+    const a=m.s[0], b=m.s[1]; L.pj++;V.pj++;L.pf+=a;L.pc+=b;V.pf+=b;V.pc+=a; L.pts+=clsPts(m,"h"); V.pts+=clsPts(m,"a");
+    if(a>b){L.pg++;V.pp++}else if(a<b){V.pg++;L.pp++}else{L.pe++;V.pe++} });
+  const arr = Object.values(t); arr.forEach(x=>{x.dif=x.pf-x.pc});
+  // Desempate: primero los partidos entre los equipos empatados (puntos, diferencia, puntos a favor)
+  const groups = {}; arr.forEach(x=>(groups[x.pts] = groups[x.pts] || []).push(x));
+  Object.values(groups).filter(g=>g.length>1).forEach(g=>{ const names = new Set(g.map(x=>x.n));
+    S.matches.forEach(m=>{ if(!played(m) || !names.has(m.h) || !names.has(m.a)) return; const L=t[m.h], V=t[m.a], a=m.s[0], b=m.s[1];
+      L.hp+=clsPts(m,"h"); V.hp+=clsPts(m,"a"); L.hd+=a-b; V.hd+=b-a; L.hf+=a; V.hf+=b; }); });
+  const idx = n => S.teams.indexOf(n);
+  return arr.sort((a,b)=>b.pts-a.pts||b.hp-a.hp||b.hd-a.hd||b.hf-a.hf||b.dif-a.dif||b.pf-a.pf||idx(a.n)-idx(b.n));
+}
+function rival(team, j){
+  const m = S.matches.find(m=>m.j===j && (m.h===team||m.a===team)); if(!m) return null;
+  const home = m.h===team, r = {opp:home?m.a:m.h, home, date:m.d, res:null};
+  if(played(m)){ const me = home?m.s[0]:m.s[1], ot = home?m.s[1]:m.s[0]; r.res = (me>ot?"G ":me<ot?"P ":"E ")+me+"-"+ot; }
+  return r;
+}
+function totals(p){ const t = {pj:0,p:0,r:0,t:0,f:0,max:0};
+  for(const x of Object.values(p.stats)){ t.pj++; for(const [k] of SK) t[k]+=x[k]; t.max = Math.max(t.max, x.p); } return t; }
+const curPlayer = () => S.players.find(p=>p.id===S.cur) || null;
+const teamOpts = sel => (!sel || S.teams.includes(sel) ? S.teams : [...S.teams, sel])
+  .map(t=>`<option value="${esc(t)}" ${t===sel?"selected":""}>${esc(t)}</option>`).join("");
+const summary = o => `${o.matches.filter(played).length} resultados y ${o.players.length} jugadores`;
+const fdt = iso => { try{ return new Date(iso).toLocaleString("es-ES",{dateStyle:"short",timeStyle:"short"}); }catch(e){ return ""; } };
+function prevInfo(){ const p = lsGet(PREV_KEY); if(!p) return ""; return (p.savedAt ? fdt(p.savedAt)+" · " : "") + summary(normalize(p)); }
+function backupPrev(){ try{ localStorage.setItem(PREV_KEY, JSON.stringify({...S, savedAt:new Date().toISOString()})); return true; }catch(e){ return false; } }
+
+/* ===================== Vistas ===================== */
+function vClas(){
+  const rows = standings(), pl = S.matches.filter(played).length;
+  let top = "";
+  if(isIOS && !standalone() && location.protocol==="https:") top += `<div class="warn">En iPhone y iPad, <b>instala la app antes de anotar</b> (Compartir → «Añadir a pantalla de inicio»). Safari y la app instalada guardan los datos por separado, y Safari puede borrarlos si pasan semanas sin abrir la página.</div>`;
+  if(!pl && !S.players.length) top += `<div class="card"><h2>Bienvenido</h2><p class="note">Anota los resultados en <b>Partidos</b> y las estadísticas en <b>Jugadores</b>. Los datos se guardan en este dispositivo y no se envían a ningún sitio. ¿Tienes datos de la versión anterior? Impórtalos en <b>Ajustes → Importar copia</b>.</p></div>`;
+  if(S.myTeam){
+    const mine = S.matches.filter(m=>m.h===S.myTeam||m.a===S.myTeam).sort(byDate);
+    const next = mine.find(m=>!played(m)), last = mine.filter(played).pop(), pos = rows.findIndex(r=>r.n===S.myTeam)+1;
+    const line = (m,lab) => { const r = rival(S.myTeam, m.j); return `<div><span>${lab} · J${m.j} · ${fdate(m.d)}</span>${r.home?"vs":"en"} ${esc(r.opp)}${r.res?` · <b>${r.res}</b>`:""}</div>`; };
+    top += `<div class="card"><h2>${esc(S.myTeam)} <span class="badge">${pos}º</span></h2><div class="mini">${last?line(last,"Último"):""}${next?line(next,"Próximo"):""}</div></div>`;
+  }
+  return top + `<div class="card"><h2>Clasificación <span class="badge">${pl}/${S.matches.length} partidos</span></h2>
+  <table><tr><th>#</th><th style="text-align:left">Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>PF</th><th>PC</th><th>Dif</th><th>Pts</th></tr>
+  ${rows.map((r,i)=>`<tr class="${r.n===S.myTeam?"me":""}"><td>${i+1}</td><td class="t"><b style="font-weight:inherit">${esc(r.n)}</b></td><td>${r.pj}</td><td>${r.pg}</td><td>${r.pp}</td><td>${r.pf}</td><td>${r.pc}</td><td>${r.dif>0?"+":""}${r.dif}</td><td class="pts">${r.pts}</td></tr>`).join("")}
+  </table><p class="note">Desempate: partidos entre los empatados (puntos, diferencia, puntos a favor) y después diferencia y puntos a favor totales. Una incomparecencia da 0 puntos. Tu equipo (Ajustes) aparece resaltado.</p></div>`;
+}
+
+function vPart(){
+  const N = nj(); S.jor = Math.min(N, Math.max(1, S.jor||1));
+  const jd = jorDate(S.jor);
+  const ms = S.matches.map((m,i)=>[m,i]).filter(([m])=>m.j===S.jor);
+  const opts = Array.from({length:N},(_,k)=>k+1).map(j=>`<option value="${j}" ${j===S.jor?"selected":""}>Jornada ${j} · ${fdate(jorDate(j))}</option>`).join("");
+  return `<div class="jnav"><button class="btn sec" id="pj" aria-label="Jornada anterior">‹</button><select id="sj">${opts}</select><button class="btn sec" id="nj" aria-label="Jornada siguiente">›</button></div>
+  <div class="card">${ms.length ? ms.map(([m,i])=>{ const me = S.myTeam && (m.h===S.myTeam||m.a===S.myTeam);
+    return `<div class="match ${me?"me":""}"><div class="tn">${esc(m.h)}</div><input class="sc" inputmode="numeric" pattern="[0-9]*" aria-label="Puntos ${esc(m.h)}" data-i="${i}" data-k="0" value="${m.s[0]??""}" placeholder="–">
+    <div class="tn">${esc(m.a)}</div><input class="sc" inputmode="numeric" pattern="[0-9]*" aria-label="Puntos ${esc(m.a)}" data-i="${i}" data-k="1" value="${m.s[1]??""}" placeholder="–">
+    <div class="mm">${m.d!==jd?`<b>${fdate(m.d)}</b> · `:""}${m.np?`<b>No presentado: ${esc(m.np==="h"?m.h:m.a)}</b> · `:""}<button class="lnk" data-e="${i}">Editar partido</button></div></div>`; }).join('<div class="sep"></div>') : `<p class="note">No hay partidos en esta jornada.</p>`}</div>
+  <p class="note">Escribe los puntos de cada equipo; se guarda solo. Deja vacío un partido sin jugar.</p>`;
+}
+
+function vJugList(){
+  if(!S.players.length) return `<div class="card"><h2>Jugadores</h2><p class="note">Añade jugadores para anotar sus puntos, rebotes, tapones y faltas en cada jornada.</p><button class="btn" id="padd">＋ Añadir jugador</button></div>`;
+  const cols = [["pj","PJ"], ...SK.map(([k,,ab])=>[k,ab])];
+  const val = (t,k) => k==="pj" ? t.pj : S.avg ? (t.pj ? t[k]/t.pj : 0) : t[k];
+  const fmt = (t,k) => k==="pj" ? t.pj : S.avg ? (t.pj ? (t[k]/t.pj).toFixed(1) : "–") : t[k];
+  const rows = S.players.map(p=>({p, t:totals(p)})).sort((a,b)=>val(b.t,S.sort)-val(a.t,S.sort) || a.p.name.localeCompare(b.p.name,"es"));
+  return `<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:4px"><h2 style="margin:0">Jugadores</h2><button class="btn" id="padd">＋ Añadir</button></div>
+  <div class="chips"><button class="chip ${S.avg?"":"on"}" data-avg="0">Totales</button><button class="chip ${S.avg?"on":""}" data-avg="1">Por partido</button></div>
+  <table class="lb"><tr><th style="text-align:left">Jugador</th>${cols.map(([k,l])=>`<th class="s ${S.sort===k?"on":""}" data-sort="${k}">${l}</th>`).join("")}</tr>
+  ${rows.map(({p,t})=>`<tr data-id="${esc(p.id)}"><td class="t"><b>${p.num?"#"+esc(p.num)+" ":""}${esc(p.name)}</b><small>${esc(p.team||"Sin equipo")}</small></td>${cols.map(([k])=>`<td class="${S.sort===k?"pts":""}">${fmt(t,k)}</td>`).join("")}</tr>`).join("")}
+  </table><p class="note">Toca una columna para ordenar y un jugador para ver su ficha y anotar sus datos.</p></div>`;
+}
+
+function vJugDet(p){
+  const N = nj(), t = totals(p), lab = Object.fromEntries(SK.map(([k,l])=>[k,l]));
+  const vals = Array.from({length:N},(_,k)=>p.stats[k+1]?.[S.chart] ?? 0), top = Math.max(1,...vals);
+  const rows = Array.from({length:N},(_,k)=>{ const j = k+1, x = p.stats[j], r = p.team ? rival(p.team,j) : null;
+    const info = r ? `<b>J${j}</b> · ${r.home?"vs":"en"} ${esc(r.opp)}<div class="sub">${fdate(r.date)}${r.res?" · "+r.res:""}</div>`
+                   : `<b>J${j}</b><div class="sub">${p.team?"Descansa":"Sin equipo asignado"}</div>`;
+    return `<div class="jr ${x?"":"no"}" data-j="${j}" role="button" tabindex="0"><div class="ttl">${info}</div>${SK.map(([k])=>`<div class="v ${k==="f"&&x&&x.f>=5?"f5":""}">${x?x[k]:"·"}</div>`).join("")}</div>`; }).join("");
+  return `<div class="row" style="margin-bottom:10px"><button class="btn sec" id="back">‹ Jugadores</button>
+   <select class="big" id="ps" style="margin:0;flex:1;min-width:0">${S.players.map(x=>`<option value="${esc(x.id)}" ${x.id===p.id?"selected":""}>${esc(x.name)}</option>`).join("")}</select></div>
+  <div class="card"><div class="row"><input class="txt" id="pn" value="${esc(p.name)}" placeholder="Nombre" aria-label="Nombre" style="flex:1;min-width:0"><input class="txt" id="pd" value="${esc(p.num)}" placeholder="Dorsal" aria-label="Dorsal" inputmode="numeric" style="width:84px"></div>
+   <select class="big" id="pt" aria-label="Equipo"><option value="">Equipo…</option>${teamOpts(p.team)}</select></div>
+  <div class="card"><h2>Resumen <span class="badge">${t.pj} ${t.pj===1?"partido":"partidos"}</span></h2>
+   <div class="stats">${SK.map(([k,l])=>`<div class="stat"><b>${t[k]}</b><span>${l}</span><em>media ${t.pj?(t[k]/t.pj).toFixed(1):"0.0"}</em></div>`).join("")}</div>
+   <p class="note">Máximo de puntos en un partido: <b>${t.max}</b></p>
+   <div class="chips">${SK.map(([k,l])=>`<button class="chip ${S.chart===k?"on":""}" data-ch="${k}">${l}</button>`).join("")}</div>
+   <div class="bars">${vals.map(v=>`<div style="height:${v/top*100}%"><i>${v||""}</i></div>`).join("")}</div>
+   <div class="bx">${vals.map((_,k)=>`<span>${k+1}</span>`).join("")}</div>
+   <div class="note center">${lab[S.chart]} por jornada</div></div>
+  <div class="card"><h2>Por jornada</h2>
+   <div class="jr hd"><div></div>${SK.map(([,,ab])=>`<div class="v">${ab}</div>`).join("")}</div>${rows}
+   <p class="note">Toca una jornada para anotar. 5 faltas se marcan en rojo.</p></div>
+  <button class="btn bad" id="pdel">Eliminar jugador</button>`;
+}
+
+function installHtml(){
+  if(standalone()) return `<p class="note">La app está instalada en este dispositivo.</p>`;
+  if(location.protocol==="file:") return `<p class="note">Estás abriendo la página como archivo. Para instalarla hay que publicar la carpeta en una web con HTTPS.</p>`;
+  if(deferredPrompt) return `<button class="btn" id="inst">Instalar app</button>`;
+  if(isIOS) return `<p class="note">En iPhone o iPad: abre la página en Safari, pulsa Compartir y luego «Añadir a pantalla de inicio».</p>`;
+  return `<p class="note">Usa «Instalar app» o «Añadir a pantalla de inicio» en el menú del navegador.</p>`;
+}
+function vAju(){
+  return `<div class="card"><h2>Mi equipo</h2><select class="big" id="mt"><option value="">— ninguno —</option>${teamOpts(S.myTeam)}</select>
+  <p class="note">Se resalta en la clasificación y en los partidos, y es el equipo por defecto de los jugadores nuevos.</p></div>
+  <div class="card"><h2>Puntos por resultado</h2><div class="row">
+   <label class="f" style="flex:1">Victoria<input class="txt" type="number" inputmode="numeric" id="aw" value="${S.win}"></label>
+   <label class="f" style="flex:1">Derrota<input class="txt" type="number" inputmode="numeric" id="al" value="${S.loss}"></label>
+   <label class="f" style="flex:1">Empate<input class="txt" type="number" inputmode="numeric" id="ad" value="${S.draw}"></label></div>
+   <p class="note">Supuesto habitual: 2 / 1 / 1. Cámbialo si la normativa es distinta.</p></div>
+  <div class="card"><details><summary>Equipos (${S.teams.length})</summary>
+   ${S.teams.map((t,i)=>`<div class="tl"><span>${esc(t)}</span><button class="lnk" data-rn="${i}">Renombrar</button></div>`).join("")}
+   <p class="note">Al renombrar se actualizan partidos, jugadores y tu equipo.</p></details></div>
+  <div class="card"><h2>Datos</h2>
+   <p class="note" id="pers">${store==="mem"?"⚠️ Este navegador no permite guardar: los datos se pierden al cerrar. Exporta una copia.":"Guardados en este dispositivo."}</p>
+   <div class="row wrap"><button class="btn" id="exp">Exportar copia</button><button class="btn sec" id="imp">Importar copia</button><input type="file" id="file" class="hide"></div>
+   <p class="note">Usa la copia para no perder datos o para pasarlos a otro dispositivo. «Importar» acepta copias de esta app, de la versión anterior y el archivo <b>datos\\cadeteB.json</b>. La copia incluye los nombres de los jugadores: compártela solo con quien deba tenerla.</p>
+   ${prevInfo() ? `<div class="sep"></div><p class="note">Hay datos guardados de antes de la última importación o borrado (${prevInfo()}).</p><button class="btn sec" id="undo">Recuperar esos datos</button>` : ""}</div>
+  <div class="card"><h2>Instalar</h2>${installHtml()}</div>
+  <div class="card"><button class="btn bad" id="rst">Borrar resultados y jugadores</button></div>
+  <p class="note center">Versión ${VERSION}</p>`;
+}
+async function persistInfo(){
+  const el = $("pers"); if(!el || store==="mem") return;
+  let p = false; try{ p = await navigator.storage?.persisted?.(); }catch(e){}
+  el.textContent = p ? "Guardados en este dispositivo de forma permanente." : "Guardados en este dispositivo. El navegador podría borrarlos si se limpian sus datos o falta espacio: instala la app y exporta una copia de vez en cuando.";
+}
+
+/* ===================== Diálogos ===================== */
+// Cada diálogo abierto añade una entrada al historial: el botón Atrás del móvil lo cierra sin salir de la pantalla.
+const dlg = $("dlg");
+let downOnBackdrop = false;
+dlg.addEventListener("pointerdown", e => { downOnBackdrop = e.target===dlg; });
+dlg.addEventListener("click", e => { if(e.target===dlg && downOnBackdrop) closeDlg(); downOnBackdrop = false; });
+dlg.addEventListener("close", () => { if(history.state && history.state.dlg) history.back(); });
+function openDlg(html){
+  dlg.innerHTML = html;
+  if(dlg.showModal) dlg.showModal(); else dlg.setAttribute("open","");
+  history.pushState({...(history.state||{}), dlg:1}, "", location.href);
+}
+function closeDlg(){ if(!dlg.open) return; if(dlg.close) dlg.close(); else{ dlg.removeAttribute("open"); dlg.dispatchEvent(new Event("close")); } }
+
+function openStat(p, j){
+  const cur = p.stats[j], v = cur ? {...cur} : {p:0,r:0,t:0,f:0}, r = p.team ? rival(p.team,j) : null;
+  openDlg(`<div class="dh"><b>${esc(p.name)} · Jornada ${j}</b><div>${r?`${r.home?"vs":"en"} ${esc(r.opp)} · ${fdate(r.date)}${r.res?" · "+r.res:""}`:""}</div></div>
+   <div class="db">${SK.map(([k,l])=>`<div class="er"><div class="el">${l}</div><div class="ctl">
+     <button type="button" data-k="${k}" data-d="-1" aria-label="Restar ${l}">−</button><input data-k="${k}" inputmode="numeric" pattern="[0-9]*" aria-label="${l}" value="${v[k]}">
+     ${k==="p" ? [1,2,3].map(n=>`<button type="button" data-k="p" data-d="${n}">+${n}</button>`).join("") : `<button type="button" data-k="${k}" data-d="1" aria-label="Sumar ${l}">+</button>`}</div></div>`).join("")}</div>
+   <div class="df">${cur?`<button type="button" class="btn sec" id="dno">No jugó</button>`:""}<span style="flex:1"></span><button type="button" class="btn sec" id="dcan">Cancelar</button><button type="button" class="btn" id="dok">Guardar</button></div>`);
+  const paint = () => dlg.querySelectorAll(".ctl input").forEach(i=>{ i.value = v[i.dataset.k]; i.classList.toggle("f5", i.dataset.k==="f" && v.f>=5); });
+  dlg.querySelectorAll(".ctl button").forEach(b=>b.onclick=()=>{ const k=b.dataset.k; v[k] = Math.max(0, Math.min(999, v[k] + +b.dataset.d)); paint(); });
+  // Al tocar un número se vacía (el valor anterior queda de pista) para no añadir cifras detrás; si no se escribe nada, se restaura.
+  dlg.querySelectorAll(".ctl input").forEach(i=>{
+    i.onfocus=()=>{ i.placeholder = String(v[i.dataset.k]); i.value = ""; };
+    i.oninput=()=>{ i.value = i.value.replace(/\D/g,"").slice(0,3); if(i.value!=="") v[i.dataset.k] = num(i.value); i.classList.toggle("f5", i.dataset.k==="f" && v.f>=5); };
+    i.onblur=paint; });
+  paint();
+  $("dcan").onclick = closeDlg;
+  $("dok").onclick = () => { p.stats[j] = {...v}; save(); closeDlg(); render(); };
+  if($("dno")) $("dno").onclick = () => { delete p.stats[j]; save(); closeDlg(); render(); };
+}
+
+function openMatch(i){
+  const m = S.matches[i];
+  openDlg(`<div class="dh"><b>Editar partido</b><div>Jornada ${m.j}</div></div>
+   <div class="db"><label class="f">Fecha<input class="txt" type="date" id="md" value="${esc(m.d)}"></label>
+    <label class="f">Local<select class="big" id="mh">${teamOpts(m.h)}</select></label>
+    <label class="f">Visitante<select class="big" id="ma">${teamOpts(m.a)}</select></label>
+    <label class="f">Incomparecencia<select class="big" id="mnp"><option value="">Ninguna</option><option value="h" ${m.np==="h"?"selected":""}>No se presentó el local</option><option value="a" ${m.np==="a"?"selected":""}>No se presentó el visitante</option></select></label>
+    <p class="note">Con incomparecencia, el equipo que no se presentó suma 0 puntos. Si el marcador está vacío se pone 20-0.</p></div>
+   <div class="df"><span style="flex:1"></span><button type="button" class="btn sec" id="dcan">Cancelar</button><button type="button" class="btn" id="dok">Guardar</button></div>`);
+  $("dcan").onclick = closeDlg;
+  $("dok").onclick = () => { const h = $("mh").value, a = $("ma").value; let np = $("mnp").value;
+    if(h===a){ alert("Local y visitante no pueden ser el mismo equipo."); return; }
+    const dup = S.matches.find((x,k)=>k!==i && x.j===m.j && [x.h,x.a].some(t=>t===h||t===a));
+    if(dup && !confirm("Ese equipo ya juega otro partido en la jornada "+m.j+". ¿Guardar igualmente?")) return;
+    const swapped = h===m.a && a===m.h, changed = h!==m.h || a!==m.a;
+    if(changed && !swapped && played(m) && !confirm(`Este partido tiene resultado (${m.s[0]}-${m.s[1]}). Se mantendrá con los equipos nuevos. ¿Continuar?`)) return;
+    if(swapped){ m.s = [m.s[1], m.s[0]]; if(np===m.np) np = np==="h" ? "a" : np==="a" ? "h" : ""; }   // al dar la vuelta, el marcador sigue a cada equipo
+    m.d = $("md").value; m.h = h; m.a = a; m.np = np;
+    if(np && m.s[0]==null && m.s[1]==null) m.s = np==="h" ? [0,20] : [20,0];
+    save(); closeDlg(); render(); };
+}
+
+/* ===================== Render y eventos ===================== */
+const app = $("app");
+function render(){
+  document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on", b.dataset.t===tab));
+  let html;
+  if(tab==="clas") html = vClas();
+  else if(tab==="part") html = vPart();
+  else if(tab==="jug"){ const p = curPlayer(); html = view==="det" && p ? vJugDet(p) : (view = "list", vJugList()); }
+  else html = vAju();
+  app.innerHTML = (store==="mem" ? `<div class="warn">Este navegador no permite guardar datos. Lo que anotes se perderá al cerrar, salvo que exportes una copia en Ajustes.</div>` : "") + html;
+  bind();
+}
+let pendingTab = null;
+function go(t){
+  if(history.state && history.state.det){ pendingTab = t; history.back(); return; }   // salir de la ficha sin dejarla en el historial
+  tab = t; view = "list"; history.replaceState(null, "", "#"+t); render(); window.scrollTo(0,0);
+}
+function openPlayer(id){ S.cur = id; view = "det"; history.pushState({det:1}, "", "#jug/"+encodeURIComponent(id)); render(); window.scrollTo(0,0); }
+function route(){
+  let h = ""; try{ h = decodeURIComponent(location.hash.slice(1)); }catch(e){}
+  const [t,id] = h.split("/");
+  tab = TABS.includes(t) ? t : "clas";
+  if(tab==="jug" && id && S.players.some(p=>p.id===id)){ S.cur = id; view = "det"; } else view = "list";
+}
+window.addEventListener("popstate", () => {
+  if(dlg.open){ closeDlg(); return; }
+  if(pendingTab){ const t = pendingTab; pendingTab = null; go(t); return; }
+  route(); render(); });
+document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>go(b.dataset.t));
+
+function bind(){
+  if(tab==="part"){
+    const goJ = j => { S.jor = Math.min(nj(), Math.max(1,j)); render(); };
+    $("pj").onclick = () => goJ(S.jor-1); $("nj").onclick = () => goJ(S.jor+1); $("sj").onchange = e => goJ(+e.target.value);
+    app.querySelectorAll(".sc").forEach(inp=>inp.oninput=()=>{ inp.value = inp.value.replace(/\D/g,"").slice(0,3);
+      S.matches[+inp.dataset.i].s[+inp.dataset.k] = num(inp.value); save(); });
+    app.querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>openMatch(+b.dataset.e));
+  }
+  if(tab==="jug"){
+    const add = () => { const name = cleanName(prompt("Nombre del jugador (puedes usar solo nombre o iniciales):")); if(!name) return;
+      const id = uid(); S.players.push({id, name:name.slice(0,60), num:"", team:S.myTeam||"", stats:{}}); save(); openPlayer(id); };
+    if($("padd")) $("padd").onclick = add;
+    if(view==="list"){
+      app.querySelectorAll("[data-avg]").forEach(b=>b.onclick=()=>{ S.avg = b.dataset.avg==="1"; save(); render(); });
+      app.querySelectorAll("[data-sort]").forEach(th=>th.onclick=()=>{ S.sort = th.dataset.sort; save(); render(); });
+      app.querySelectorAll("tr[data-id]").forEach(tr=>tr.onclick=()=>openPlayer(tr.dataset.id));
+      return;
+    }
+    const p = curPlayer();
+    $("back").onclick = () => { if(history.state && history.state.det) history.back(); else go("jug"); };
+    $("ps").onchange = e => { S.cur = e.target.value; history.replaceState({det:1}, "", "#jug/"+encodeURIComponent(S.cur)); render(); };
+    $("pn").oninput = e => { const n = cleanName(e.target.value).slice(0,60); if(!n) return; p.name = n;
+      const o = [...$("ps").options].find(x=>x.value===p.id); if(o) o.textContent = n; save(); };
+    $("pn").onblur = e => { if(!cleanName(e.target.value)) e.target.value = p.name; };
+    $("pd").oninput = e => { e.target.value = e.target.value.replace(/\D/g,"").slice(0,3); p.num = e.target.value; save(); };
+    $("pt").onchange = e => { p.team = e.target.value; save(); render(); };
+    app.querySelectorAll("[data-ch]").forEach(b=>b.onclick=()=>{ S.chart = b.dataset.ch; save(); render(); });
+    app.querySelectorAll(".jr[data-j]").forEach(r=>{ r.onclick = () => openStat(p, +r.dataset.j);
+      r.onkeydown = e => { if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openStat(p, +r.dataset.j); } }; });
+    $("pdel").onclick = () => { if(!confirm("¿Eliminar a "+p.name+" y todos sus datos?")) return;
+      S.players = S.players.filter(x=>x!==p); S.cur = S.players[0]?.id || null; save(); go("jug"); };
+  }
+  if(tab==="aju"){
+    $("mt").onchange = e => { S.myTeam = e.target.value; save(); };
+    const setN = (id,k) => $(id).onchange = e => { const n = parseFloat(e.target.value); S[k] = Number.isFinite(n) ? n : 0; e.target.value = S[k]; save(); };
+    setN("aw","win"); setN("al","loss"); setN("ad","draw");
+    app.querySelectorAll("[data-rn]").forEach(b=>b.onclick=()=>renameTeam(+b.dataset.rn));
+    $("exp").onclick = exportData;
+    $("imp").onclick = () => $("file").click();
+    $("file").onchange = e => importData(e.target);
+    if($("inst")) $("inst").onclick = async () => { const ev = deferredPrompt; deferredPrompt = null; ev.prompt(); try{ await ev.userChoice; }catch(x){} render(); };
+    $("rst").onclick = () => { if(!confirm("¿Borrar TODOS los resultados y jugadores? El calendario y los ajustes se mantienen.")) return;
+      backupPrev(); S.matches.forEach(m=>{ m.s=[null,null]; m.np=""; }); S.players = []; S.cur = null; save(); render(); toast("Datos borrados. Puedes recuperarlos en Ajustes."); };
+    if($("undo")) $("undo").onclick = () => { const p = lsGet(PREV_KEY); if(!p) return;
+      if(!confirm("Se recuperarán los datos anteriores ("+summary(normalize(p))+") y se perderán los actuales ("+summary(S)+"). ¿Continuar?")) return;
+      const cur = JSON.stringify(S); S = normalize(p); initJor(true); view = "list";
+      try{ localStorage.setItem(PREV_KEY, cur); }catch(e){}   // permite volver a deshacer
+      save(); render(); toast("Datos recuperados"); };
+    persistInfo();
+  }
+}
+
+function renameTeam(i){
+  const old = S.teams[i], n = cleanName(prompt("Nuevo nombre del equipo:", old)).slice(0,60);
+  if(!n || n===old) return;
+  if(S.teams.includes(n)){ alert("Ya existe un equipo con ese nombre."); return; }
+  S.teams[i] = n;
+  S.matches.forEach(m=>{ if(m.h===old) m.h = n; if(m.a===old) m.a = n; });
+  S.players.forEach(p=>{ if(p.team===old) p.team = n; });
+  if(S.myTeam===old) S.myTeam = n;
+  save(); render(); toast("Equipo renombrado");
+}
+
+// Sin esperas antes de compartir: iOS exige que share() se llame directamente desde el toque.
+function exportData(){
+  const name = "cadeteB_copia_"+todayLocal()+".json";
+  const file = new File([JSON.stringify({...S, savedAt:new Date().toISOString()},null,1)], name, {type:"application/json"});
+  if(isIOS && navigator.canShare && navigator.canShare({files:[file]})){
+    navigator.share({files:[file], title:name}).catch(e=>{ if(e.name!=="AbortError") alert("No se ha podido compartir la copia: "+e.message); });
+    return;
+  }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(file); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href), 10000);
+  toast("Copia generada: "+name);
+}
+function importData(input){
+  const f = input.files && input.files[0]; if(!f) return;
+  const r = new FileReader();
+  r.onload = () => { input.value = "";
+    let d; try{ d = JSON.parse(r.result); if(!d || !Array.isArray(d.players) || !(d.scores || d.matches)) throw 0; }
+    catch(x){ alert("El archivo no es una copia válida de esta app."); return; }
+    if(+d.v > 2){ alert("Esta copia es de una versión más nueva de la app. Actualiza la app antes de importarla."); return; }
+    const n = normalize(d);
+    if(!confirm(`La copia${d.savedAt?" del "+fdt(d.savedAt):""} tiene ${summary(n)}.\nSustituirá a los datos actuales (${summary(S)}). ¿Continuar?`)) return;
+    backupPrev(); S = n; initJor(true); view = "list"; save(); render(); toast("Copia importada. Puedes deshacerlo en Ajustes."); };
+  r.onerror = () => { input.value = ""; alert("No se ha podido leer el archivo."); };
+  r.readAsText(f);
+}
+
+/* ===================== Instalación y arranque ===================== */
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); deferredPrompt = e; if(tab==="aju") render(); });
+window.addEventListener("appinstalled", () => { deferredPrompt = null; toast("App instalada"); if(tab==="aju") render(); });
+if("serviceWorker" in navigator && location.protocol!=="file:"){
+  const hadSW = !!navigator.serviceWorker.controller;   // la primera instalación no es una «versión nueva»
+  navigator.serviceWorker.addEventListener("controllerchange", () => { if(hadSW) $("upd").classList.remove("hide"); });
+  $("updb").onclick = async () => { await flush(); location.reload(); };
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").then(r=>{ swReg = r; }).catch(e=>console.warn(e)));
+}
+
+(async () => {
+  try{
+    S = await loadState();
+    initJor(true); route(); render();
+    setSt(store==="mem" ? "mem" : "ok");
+  }catch(e){
+    console.error(e);
+    app.innerHTML = `<div class="warn"><b>No se ha podido abrir la app.</b><br>${esc(e && e.message || e)}</div><button class="btn" onclick="location.reload()">Reintentar</button>`;
+  }
+})();
+</script>
+</body>
+</html>
