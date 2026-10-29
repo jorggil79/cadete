@@ -208,7 +208,8 @@ export async function main({ env = process.env, fetchFn = fetch, cfg, log = cons
   const writes = [], errores = [], ahora = new Date();
   const run = async (nombre, fn) => { try { await fn(); } catch (e) { errores.push(`${nombre}: ${e.message}`); log(`ERROR ${nombre}: ${e.message}`); } };
   await run("NBA", async () => {
-    const r = await importNBA({ fetchFn, now, prev: prevNba, log });
+    const maxBox = Math.min(5000, Math.max(1, parseInt(env.MAX_BOX, 10) || 160));
+    const r = await importNBA({ fetchFn, now, prev: prevNba, maxBox, log });
     writes.push({ path: "comp/nba", data: { ...r.doc, actualizado: ahora } });
     writes.push({ path: "comp/nba_rosters", data: { ...r.rosters, actualizado: ahora } });
     for (const [pid, j] of Object.entries(r.jugadores)) {

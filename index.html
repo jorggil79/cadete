@@ -1113,12 +1113,92 @@ function openFr(tid){
     const fr = {...(P.franquicia||{})}; if(v.length) fr[tid] = v; else delete fr[tid];
     savePrefs({franquicia:fr}); closeDlg(); syncNbaj(); render(); };
 }
+// Actualización manual (administrador): lanza en GitHub el proceso «NBA, ACB y Euroliga» en modo completo.
+// El token de GitHub (solo permiso de Actions en el repositorio) se guarda únicamente en este dispositivo.
+const GH_KEY = "cadeteB_gh", GH_WF = "profesional.yml";
+let ghRun = null, ghPoll = null;
+function guessRepo(){ const m = location.hostname.match(/^([a-z0-9-]+)\.github\.io$/i), seg = location.pathname.split("/").filter(Boolean)[0];
+  return m && seg && !/\.html?$/i.test(seg) ? m[1]+"/"+seg : ""; }
+function ghCfg(){ const c = lsGet(GH_KEY) || {}; return {repo:c.repo || guessRepo(), token:c.token || "", branch:c.branch || "main"}; }
+async function gh(path, opts){
+  opts = opts || {}; const c = ghCfg();
+  const r = await fetch("https://api.github.com"+path, {method:opts.method||"GET", body:opts.body,
+    headers:{Accept:"application/vnd.github+json", Authorization:"Bearer "+c.token, "X-GitHub-Api-Version":"2022-11-28", ...(opts.body?{"Content-Type":"application/json"}:{})}});
+  if(!r.ok){ let m = ""; try{ m = (await r.json()).message || ""; }catch(e){} throw Object.assign(new Error(m || "GitHub respondió "+r.status), {status:r.status}); }
+  return r.status===204 ? null : r.json();
+}
+function ghErr(e){
+  if(!e || !e.status) return "No se ha podido contactar con GitHub. Comprueba la conexión.";
+  if(e.status===401) return "El token no es válido o ha caducado. Crea uno nuevo y vuelve a guardarlo.";
+  if(e.status===403) return "El token no tiene permiso para ejecutar acciones en este repositorio (necesita «Actions: Read and write»).";
+  if(e.status===404) return "No se encuentra el repositorio o el proceso .github/workflows/"+GH_WF+" (¿está subido?). Revisa también que el token tenga acceso a ese repositorio.";
+  if(e.status===422) return "GitHub ha rechazado la ejecución: "+e.message;
+  return "Error de GitHub: "+e.message;
+}
+const lastLoads = () => PRO_IDS.map(k=>`${COMPS[k].n}: ${PRO[k] && PRO[k].act ? fdt(PRO[k].act) : "sin datos"}`).join(" · ");
+function vGhCard(){
+  const c = ghCfg();
+  const st = ghRun ? `<div class="${ghRun.err?"warn":"info"}">${esc(ghRun.txt)}${ghRun.url?` · <a href="${esc(ghRun.url)}" target="_blank" rel="noopener">ver en GitHub</a>`:""}</div>` : "";
+  if(!c.token) return `<div class="card"><h2>Actualizar NBA, ACB y Euroliga</h2>
+    <p class="note">Para lanzar la actualización desde aquí, la app necesita un token de GitHub que solo permita ejecutar las acciones de tu repositorio. Se guarda únicamente en este dispositivo.</p>
+    <label class="f">Repositorio (usuario/repositorio)<input class="txt" id="ghRepo" value="${esc(c.repo)}" placeholder="usuario/repositorio" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+    <label class="f">Token de GitHub<input class="txt" id="ghTok" type="password" autocomplete="off" placeholder="github_pat_…"></label>
+    <div id="ghMsg"></div><button class="btn" id="ghSave">Guardar</button>
+    <details style="margin-top:10px"><summary class="note" style="font-weight:400">Cómo crear el token</summary><p class="note">En GitHub: tu foto → Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → Generate new token. En «Repository access» elige <b>Only select repositories</b> y tu repositorio. En «Permissions → Repository permissions», pon <b>Actions: Read and write</b> (nada más). Genera el token, cópialo (empieza por github_pat_) y pégalo aquí.</p></details>
+    <p class="note">Última actualización · ${esc(lastLoads())}</p></div>`;
+  return `<div class="card"><h2>Actualizar NBA, ACB y Euroliga</h2>
+    <p class="note">Carga ahora los partidos, clasificaciones y estadísticas que falten desde el inicio de cada temporada; lo que ya está guardado no se repite. Tarda entre 1 y 10 minutos y los datos aparecen solos al terminar.</p>
+    ${st}<button class="btn" id="ghRun" ${ghRun&&ghRun.busy?"disabled":""}>${ghRun&&ghRun.busy?"Actualizando…":"Actualizar ahora"}</button>
+    <p class="note">Última actualización · ${esc(lastLoads())}</p>
+    <p class="note">Repositorio ${esc(c.repo)} · <button class="lnk" id="ghForget">Olvidar el token</button></p></div>`;
+}
+function ghState(s){ ghRun = s; if(phase==="app" && tab==="aju") scheduleRender(); }
+async function runGh(){
+  const c = ghCfg(), since = Date.now() - 120000;
+  ghState({busy:true, txt:"Pidiendo a GitHub que empiece la actualización…"});
+  try{ await gh(`/repos/${c.repo}/actions/workflows/${GH_WF}/dispatches`, {method:"POST", body:JSON.stringify({ref:c.branch, inputs:{max_estadisticas:"2000"}})}); }
+  catch(e){ ghState({err:true, txt:ghErr(e)}); return; }
+  ghState({busy:true, txt:"En cola en GitHub…"}); pollGh(since, 0);
+}
+function pollGh(since, n){
+  clearTimeout(ghPoll);
+  ghPoll = setTimeout(async () => {
+    let run = null;
+    try{ const r = await gh(`/repos/${ghCfg().repo}/actions/workflows/${GH_WF}/runs?event=workflow_dispatch&per_page=5`);
+      run = (r && r.workflow_runs || []).filter(x=>Date.parse(x.created_at)>=since).sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0] || null; }
+    catch(e){ if(n>5){ ghState({err:true, txt:ghErr(e)}); return; } }
+    if(run && run.status==="completed"){
+      ghState(run.conclusion==="success" ? {txt:"Actualización terminada. Los datos ya están en la app.", url:run.html_url}
+        : {err:true, txt:`La actualización no ha terminado bien (${run.conclusion}). Abre el detalle en GitHub para ver el motivo.`, url:run.html_url});
+      return;
+    }
+    if(n>=100){ ghState({err:true, txt:"La actualización está tardando más de lo normal. Revisa su estado en GitHub.", url:run && run.html_url}); return; }
+    ghState({busy:true, txt: run && run.status==="in_progress" ? "Actualizando en GitHub… (puede tardar unos minutos)" : "En cola en GitHub…", url:run && run.html_url});
+    pollGh(since, n+1);
+  }, n===0 ? 4000 : 10000);
+}
+function bindGh(){
+  const on = (id, fn) => { const el = $(id); if(el) el.onclick = fn; };
+  on("ghSave", async () => {
+    const repo = $("ghRepo").value.trim().replace(/^https?:\/\/github\.com\//i,"").replace(/\.git$/,"").replace(/\/+$/,""), token = $("ghTok").value.trim(), msg = $("ghMsg");
+    if(!/^[\w.-]+\/[\w.-]+$/.test(repo) || !token){ msg.innerHTML = `<div class="warn">Escribe el repositorio como usuario/repositorio y pega el token.</div>`; return; }
+    const b = $("ghSave"); b.disabled = true; b.textContent = "Comprobando…";
+    try{ localStorage.setItem(GH_KEY, JSON.stringify({repo, token}));
+      const info = await gh(`/repos/${repo}`); await gh(`/repos/${repo}/actions/workflows/${GH_WF}`);
+      localStorage.setItem(GH_KEY, JSON.stringify({repo, token, branch:(info && info.default_branch) || "main"}));
+      toast("Token guardado en este dispositivo"); render(); }
+    catch(e){ try{ localStorage.removeItem(GH_KEY); }catch(x){} msg.innerHTML = `<div class="warn">${esc(ghErr(e))}</div>`; b.disabled = false; b.textContent = "Guardar"; }
+  });
+  on("ghForget", () => { if(!confirm("¿Olvidar el token de GitHub en este dispositivo?")) return; try{ localStorage.removeItem(GH_KEY); }catch(e){} clearTimeout(ghPoll); ghRun = null; render(); });
+  on("ghRun", runGh);
+}
 function vProAju(){
   const comps = visibleComps();
   let h = `<div class="card"><h2>Competiciones</h2>${COMP_IDS.map(c=>`<label class="chk"><input type="checkbox" data-vc="${c}" ${comps.includes(c)?"checked":""}><span>${esc(COMPS[c].t)}</span></label>`).join("")}
     <label class="f" style="margin-top:10px">Abrir la app en<select class="big" id="icomp">${comps.map(c=>`<option value="${c}" ${P.inicioComp===c?"selected":""}>${esc(COMPS[c].t)}</option>`).join("")}</select></label>
     ${PRO_IDS.filter(c=>comps.includes(c) && PRO[c]).map(c=>`<label class="f">Mi equipo en ${esc(COMPS[c].n)}<select class="big" data-eq="${c}"><option value="">— ninguno —</option>${PRO[c].teams.slice().sort((a,b)=>a.short.localeCompare(b.short,"es")).map(t=>`<option value="${esc(t.id)}" ${favOf(c)===t.id?"selected":""}>${esc(t.short)}</option>`).join("")}</select></label>`).join("")}
     <p class="note">Las competiciones que desmarques no aparecen en la barra superior.</p></div>`;
+  if(isAdmin) h += vGhCard();
   if(isAdmin && PRO.nba){
     const auto = new Set(ROST ? ROST.esp : []), ids = espSet();
     h += `<div class="card"><h2>Jugadores españoles de la NBA</h2>
@@ -1138,6 +1218,7 @@ function bindProAju(){
   const ic = $("icomp"); if(ic) ic.onchange = e => savePrefs({inicioComp:e.target.value});
   app.querySelectorAll("[data-eq]").forEach(s=>s.onchange=()=>{ const eq = {...(P.equipos||{})}; if(s.value) eq[s.dataset.eq] = s.value; else delete eq[s.dataset.eq]; savePrefs({equipos:eq}); });
   if(!isAdmin) return;
+  bindGh();
   const saveEsp = () => w(fb.setDoc(fb.doc(db, "compadmin", "nba"), {espanoles:{add:ESPA.add, quitar:ESPA.quitar}}), "Lista de españoles guardada");
   app.querySelectorAll("[data-esq]").forEach(b=>b.onclick=()=>{ const id = b.dataset.esq;
     ESPA.add = ESPA.add.filter(x=>x!==id); if(ROST && ROST.esp.includes(id) && !ESPA.quitar.includes(id)) ESPA.quitar.push(id);
