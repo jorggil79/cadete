@@ -1,11 +1,14 @@
-/* Service worker de Cadete B: funciona sin conexión.
-   IMPORTANTE: cada vez que publiques cambios, sube el número de CACHE
-   (p. ej. "cadeteB-v2") para que los móviles descarguen la versión nueva. */
+/* Service worker de Cadete B.
+   Primero la red (así siempre ves la última versión publicada) y, si no hay
+   conexión o tarda más de 3,5 s, la copia guardada: la app funciona sin conexión.
+   Solo hace falta cambiar CACHE si se modifica este archivo o la lista ASSETS. */
 const PREFIX = "cadeteB-";
-const CACHE = PREFIX + "v2";
+const CACHE = PREFIX + "v3";
 const ASSETS = [
   "./",
   "./index.html",
+  "./config.js",
+  "./firebase.js",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",
@@ -14,7 +17,6 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", e => {
-  // cache:"reload" evita guardar copias antiguas de la caché HTTP del hosting
   e.waitUntil(caches.open(CACHE)
     .then(c => c.addAll(ASSETS.map(u => new Request(u, { cache: "reload" }))))
     .then(() => self.skipWaiting()));
@@ -29,20 +31,24 @@ self.addEventListener("activate", e => {
   );
 });
 
-// Primero la caché (arranque instantáneo y sin conexión); en segundo plano se
-// descarga la versión de la red para la próxima vez.
 self.addEventListener("fetch", e => {
   const req = e.request;
+  // Firebase (otros dominios) y peticiones que no son GET: directas a la red
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const hit = await cache.match(req, { ignoreSearch: true }) ||
-      (req.mode === "navigate" ? await cache.match("./index.html") : undefined);
     const net = fetch(req).then(res => {
       if (res && res.ok && res.type === "basic") cache.put(req, res.clone());
       return res;
-    }).catch(() => undefined);
-    if (hit) { e.waitUntil(net); return hit; }
-    return (await net) || new Response("Sin conexión", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    });
+    try {
+      return await Promise.race([net, new Promise((_, rej) => setTimeout(() => rej(new Error("lento")), 3500))]);
+    } catch (err) {
+      const hit = await cache.match(req, { ignoreSearch: true }) ||
+        (req.mode === "navigate" ? await cache.match("./index.html") : undefined);
+      if (hit) { e.waitUntil(net.catch(() => {})); return hit; }
+      try { return await net; }
+      catch (e2) { return new Response("Sin conexión", { status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" } }); }
+    }
   })());
 });
