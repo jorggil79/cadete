@@ -1,0 +1,32 @@
+name: Resultados oficiales
+
+on:
+  schedule:
+    # Todos los miércoles a las 14:00, hora de Madrid
+    - cron: "0 14 * * 3"
+      timezone: "Europe/Madrid"
+  workflow_dispatch: {}   # botón «Run workflow» para cargarlos a mano
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resultados-oficiales
+  cancel-in-progress: false
+
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cargar resultados de la FMD Valladolid
+        run: node importar-resultados.mjs
+        env:
+          ROBOT_EMAIL: ${{ secrets.ROBOT_EMAIL }}
+          ROBOT_PASSWORD: ${{ secrets.ROBOT_PASSWORD }}
