@@ -1,0 +1,41 @@
+name: NBA, ACB y Euroliga
+
+on:
+  schedule:
+    # Todos los días a las 7:00, hora de Madrid
+    - cron: "0 7 * * *"
+      timezone: "Europe/Madrid"
+  # Carga manual (botón «Run workflow» o el botón «Actualizar ahora» de la app):
+  # recupera todo lo pendiente desde el inicio de la temporada.
+  workflow_dispatch:
+    inputs:
+      max_estadisticas:
+        description: "Máximo de partidos de la NBA cuyas estadísticas se leen en esta ejecución"
+        required: false
+        default: "2000"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: profesional
+  cancel-in-progress: false
+
+jobs:
+  importar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Cargar NBA, ACB y Euroliga
+        run: node importar-profesional.mjs
+        env:
+          ROBOT_EMAIL: ${{ secrets.ROBOT_EMAIL }}
+          ROBOT_PASSWORD: ${{ secrets.ROBOT_PASSWORD }}
+          # Diario: 160 partidos como máximo; manual: lo que se indique (por defecto, todo lo pendiente)
+          MAX_BOX: ${{ inputs.max_estadisticas || '160' }}
