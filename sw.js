@@ -3,7 +3,7 @@
    conexión o tarda más de 3,5 s, la copia guardada: la app funciona sin conexión.
    Solo hace falta cambiar CACHE si se modifica este archivo o la lista ASSETS. */
 const PREFIX = "cadeteB-";
-const CACHE = PREFIX + "v3";
+const CACHE = PREFIX + "v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -37,8 +37,9 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
   e.respondWith((async () => {
     const cache = await caches.open(CACHE);
-    const net = fetch(req).then(res => {
-      if (res && res.ok && res.type === "basic") cache.put(req, res.clone());
+    const key = new URL(req.url); key.search = "";          // config.js?v=… se guarda siempre como config.js
+    const net = fetch(req, { cache: "no-cache" }).then(res => {
+      if (res && res.ok && res.type === "basic") cache.put(key.href, res.clone());
       return res;
     });
     try {

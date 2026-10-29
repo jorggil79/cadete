@@ -394,7 +394,10 @@ function onUser(u){
     U = snap.data();
     if(U.estado==="aprobado"){ if(!dataOn) startData(); else scheduleRender(); }
     else{ stopData(); const ph = U.estado==="rechazado" ? "rechazado" : "pendiente"; if(phase!==ph){ phase = ph; render(); } }
-  }, e => { console.error(e); fatal("No se ha podido comprobar tu acceso: "+errText(e)); });
+  }, e => { console.error(e);
+    fatal(e && e.code==="permission-denied"
+      ? "La base de datos todavía no permite entrar: faltan por publicar las reglas de seguridad de Firestore. Si estás configurando la app como administrador, copia tu ID de usuario (abajo), pégalo en config.js (ADMIN_UID) y en firestore.rules, publica las reglas y vuelve a intentarlo."
+      : "No se ha podido comprobar tu acceso: "+errText(e)); });
 }
 function createRequest(){
   if(creatingReq) return; creatingReq = true;
@@ -542,7 +545,9 @@ const tags = m => (m.of ? `<span class="tag of">Oficial</span>` : played(m) ? `<
 function vPhase(){
   if(phase==="loading") return `<div class="auth card center"><p>Cargando…</p>${!navigator.onLine?`<p class="note">Sin conexión. La primera vez hace falta internet; después la app funciona sin conexión.</p>`:""}</div>`;
   if(phase==="config") return `<div class="auth card"><h2>Falta la configuración</h2><div class="warn">El archivo <b>config.js</b> no tiene los datos de Firebase. Sigue las instrucciones de instalación y vuelve a publicar la app.</div></div>`;
-  if(phase==="error") return `<div class="auth card"><h2>Algo no ha ido bien</h2><div class="warn">${esc(fatalMsg)}</div><div class="row wrap"><button class="btn" id="reload">Reintentar</button>${user?`<button class="btn sec" id="out">Cerrar sesión</button>`:""}</div></div>`;
+  if(phase==="error") return `<div class="auth card"><h2>Algo no ha ido bien</h2><div class="warn">${esc(fatalMsg)}</div>
+    ${user?`<p class="note" style="margin-bottom:4px">Tu ID de usuario:</p><p class="mono" id="uidv">${esc(user.uid)}</p><button class="btn sec sm" id="cpy">Copiar ID</button><div class="sep"></div>`:""}
+    <div class="row wrap"><button class="btn" id="reload">Reintentar</button>${user?`<button class="btn sec" id="out">Cerrar sesión</button>`:""}</div></div>`;
   if(phase==="login"){
     const msg = `<div id="amsg">${authMsg?`<div class="warn">${esc(authMsg)}</div>`:""}${authInfo?`<div class="info">${esc(authInfo)}</div>`:""}</div>`;
     if(authView==="registro") return `<div class="auth card"><h2>Crear cuenta</h2>
@@ -1391,7 +1396,8 @@ return {start, fatal:fatalLoad, _dbg:()=>({phase, tab, view, isAdmin, L, O, P, M
 })();
 </script>
 <script type="module">
-Promise.all([import("./firebase.js"), import("./config.js")]).then(([fb, cfg]) => App.start(fb, cfg)).catch(e => App.fatal(e));
+// config.js se pide siempre sin caché (si cambia el ID del administrador, se nota al momento); sin conexión, se usa la copia guardada
+Promise.all([import("./firebase.js"), import("./config.js?v=" + Date.now())]).then(([fb, cfg]) => App.start(fb, cfg)).catch(e => App.fatal(e));
 </script>
 </body>
 </html>

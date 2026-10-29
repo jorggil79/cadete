@@ -13,4 +13,4 @@ export const firebaseConfig = {
 
 // 2) ID de usuario del administrador. Regístrate en la app: el ID aparece en la pantalla
 //    de «Solicitud pendiente». Pega aquí ese mismo ID y también en las reglas de Firestore.
-export const ADMIN_UID = "";
+export const ADMIN_UID = "gA2nTXzSIQdNjA9w8N0jf7GYJ2m2";
