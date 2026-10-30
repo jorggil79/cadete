@@ -2,8 +2,8 @@ name: NBA, ACB y Euroliga
 
 on:
   schedule:
-    # Todos los días a las 7:00, hora de Madrid
-    - cron: "0 7 * * *"
+    # Todos los días a las 6:47, hora de Madrid (no a las 7:00 en punto: a esa hora GitHub retrasa o salta ejecuciones)
+    - cron: "47 6 * * *"
       timezone: "Europe/Madrid"
   # Carga manual (botón «Run workflow» o el botón «Actualizar ahora» de la app):
   # recupera todo lo pendiente desde el inicio de la temporada.
