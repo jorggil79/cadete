@@ -174,8 +174,10 @@ export function parseACB(html) {
     if (!titulo || /XXX/.test(titulo)) continue;                    // bloques de «cargando»
     const jn = (titulo.match(/^Jornada (\d+)$/i) || [])[1];
     let fecha = "";
-    for (const p of sec.split(/(?=<h3 class="heading heading--subhead DayTitle)|(?=<div class="RoundMatch-module-scss-module__[A-Za-z0-9_-]+__roundMatch")/)) {
-      const dt = p.match(/DayTitle[^>]*>([^<]+)<\/h3>/);
+    // Los nombres de clase CSS llevan un prefijo con hash que cambia con cada despliegue de acb.com
+    // («RoundMatch-module-scss-module__HASH__roundMatch» antes, «HASH_roundMatch» ahora): se busca solo la parte final.
+    for (const p of sec.split(/(?=<h3 class="[^"]*dayTitle")|(?=<div class="[^"]*roundMatch")/i)) {
+      const dt = p.match(/dayTitle[^>]*>([^<]+)<\/h3>/i);
       if (dt) { const m = decode(dt[1]).toLowerCase().match(/(\d{1,2}) de ([a-záéíóú]+) de (\d{4})/);
         if (m && MES[m[2]]) fecha = `${m[3]}-${String(MES[m[2]]).padStart(2, "0")}-${m[1].padStart(2, "0")}`; continue; }
       const eq = [...p.matchAll(/href="\/es\/liga\/equipos\/([a-z0-9-]+?)-(\d+)\?[^"]*"><p[^>]*><span[^>]*--fullName">([^<]+)<\/span><span[^>]*--shortName">([^<]+)<\/span>/g)];
