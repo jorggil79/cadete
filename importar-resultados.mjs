@@ -14,6 +14,7 @@ export const CONF = {
   deporte: process.env.DEPORTE || "Baloncesto",
   categoria: process.env.CATEGORIA || "Cadete Masculino",
   grupo: process.env.GRUPO || "Grupo B",
+  fase: process.env.FASE || "Fase Regular",
 };
 const URL_RESULTADOS = d => "https://deporteescolar.fmdva.org/resultados.aspx?d=" + encodeURIComponent(d);
 const PAUSA_MS = 800;   // pausa entre peticiones para no cargar la web oficial
@@ -115,6 +116,66 @@ export async function scrape({ http = makeHttp(), conf = CONF, pausa = PAUSA_MS 
     }
   }
   return { rows: [...porPartido.values()], semanas: semanas.length };
+}
+
+/* ---------------- Clasificación oficial (clasificaciones.aspx) ---------------- */
+
+const URL_CLASIFICACION = d => "https://deporteescolar.fmdva.org/clasificaciones.aspx?d=" + encodeURIComponent(d);
+
+// Tablas de clasificación (una por grupo) de la página de la categoría
+export function parseClasificacion(html) {
+  const out = [];
+  for (const part of html.split(/<span id="ctl00_ContentPlaceHolder1_RepeaterGrupos_ctl\d+_LBGrupos">/).slice(1)) {
+    const grupo = dec(part.slice(0, part.indexOf("<"))).trim();
+    const rows = [];
+    for (const tr of part.split(/<tr\b[^>]*>/i).slice(1)) {
+      const g = k => { const m = tr.match(new RegExp(`_LB${k}"[^>]*>([^<]*)<`)); return m ? dec(m[1]).trim() : null; };
+      const equipo = g("Equipo");
+      if (equipo == null) continue;                                   // fila de cabecera
+      const n = k => { const v = g(k); return /^-?\d+$/.test(v || "") ? +v : null; };
+      const pos = (tr.match(/<td[^>]*>\s*(\d+)\s*[ºª°]?\s*<\/td>/) || [])[1];
+      rows.push({ pos: pos ? +pos : null, equipo, pj: n("J"), pg: n("G"), pp: n("P"), pf: n("TF"), pc: n("TC"), pts: n("Ptos") });
+    }
+    out.push({ grupo, rows });
+  }
+  return out;
+}
+
+// Lee la clasificación de la categoría y el grupo configurados (fase regular)
+export async function scrapeClasificacion({ http = makeHttp(), conf = CONF, pausa = PAUSA_MS } = {}) {
+  const url = URL_CLASIFICACION(conf.deporte);
+  const post = (state, target) => http(url, { method: "POST",
+    body: new URLSearchParams({ ...hiddenFields(state), __EVENTTARGET: target, __EVENTARGUMENT: "" }) });
+  const inicio = await http(url);
+  const cats = postbackLinks(inicio, "RepeaterCategorias");
+  const cat = cats.find(c => norm(c.text) === norm(conf.categoria));
+  if (!cat) return { rows: [], aviso: `Clasificación: la categoría «${conf.categoria}» no aparece en la web oficial (hay: ${cats.map(c => c.text).join(", ") || "ninguna"}).` };
+  await sleep(pausa);
+  let page = await post(inicio, cat.target);
+  if (!norm(pageTitle(page)).includes(norm(conf.categoria))) throw new Error("No se ha podido seleccionar la categoría en la clasificación oficial.");
+  // La fase regular es la que se muestra por defecto; si no, se selecciona
+  if (!norm(pageTitle(page)).includes(norm(conf.fase))) {
+    const fase = postbackLinks(page, "RepeaterFases").find(f => norm(f.text) === norm(conf.fase));
+    if (!fase) return { rows: [], aviso: `Clasificación: la fase «${conf.fase}» no aparece en la web oficial.` };
+    await sleep(pausa);
+    page = await post(page, fase.target);
+  }
+  const g = parseClasificacion(page).find(x => norm(x.grupo) === norm(conf.grupo));
+  if (!g) return { rows: [], aviso: `Clasificación: no aparece el «${conf.grupo}» de ${conf.categoria}.` };
+  return { rows: g.rows };
+}
+
+// Casa los nombres de la web oficial con los equipos de la app
+export function emparejarClasificacion(rows, liga) {
+  const porNombre = new Map((liga.teams || []).map(t => [norm(t.n), t.id]));
+  const clasificacion = [], avisos = [];
+  for (const r of rows) {
+    const id = porNombre.get(norm(r.equipo));
+    if (!id) { avisos.push(`Clasificación: equipo no reconocido «${r.equipo}»`); continue; }
+    if ([r.pj, r.pg, r.pp, r.pf, r.pc, r.pts].some(v => v == null)) { avisos.push(`Clasificación: datos incompletos de «${r.equipo}»`); continue; }
+    clasificacion.push({ id, pos: r.pos ?? clasificacion.length + 1, pj: r.pj, pg: r.pg, pp: r.pp, pf: r.pf, pc: r.pc, pts: r.pts });
+  }
+  return { clasificacion, avisos: [...new Set(avisos)] };
 }
 
 /* ---------------- Emparejar con el calendario de la app ---------------- */
@@ -226,7 +287,16 @@ export async function main({ env = process.env, fetchFn = fetch, http, cfg, log 
   const res = await scrape({ http });
   log(`Web oficial: ${res.semanas} jornadas revisadas, ${res.rows.length} partidos de ${CONF.categoria} ${CONF.grupo}.`);
   if (res.aviso) log("Aviso: " + res.aviso);
-  if (prueba && !env.ROBOT_EMAIL) { for (const r of res.rows) log(`  J${r.jornada} ${r.fecha} ${r.local} ${r.rl ?? ""}-${r.rv ?? ""} ${r.visitante}`); return { res }; }
+  // Clasificación oficial: si falla no impide cargar los resultados
+  let clas = { rows: [] }, clasError = "";
+  try { clas = await scrapeClasificacion({ http }); } catch (e) { clasError = "Clasificación: " + e.message; log("Aviso: " + clasError); }
+  if (clas.aviso) log("Aviso: " + clas.aviso);
+  log(`Clasificación oficial: ${clas.rows.length} equipos de ${CONF.categoria} ${CONF.grupo}.`);
+  if (prueba && !env.ROBOT_EMAIL) {
+    for (const r of res.rows) log(`  J${r.jornada} ${r.fecha} ${r.local} ${r.rl ?? ""}-${r.rv ?? ""} ${r.visitante}`);
+    for (const r of clas.rows) log(`  ${r.pos}º ${r.equipo} PJ${r.pj} G${r.pg} P${r.pp} TF${r.pf} TC${r.pc} Pts${r.pts}`);
+    return { res, clas };
+  }
 
   if (!env.ROBOT_EMAIL || !env.ROBOT_PASSWORD) throw new Error("Faltan los secretos ROBOT_EMAIL y ROBOT_PASSWORD.");
   const fs = firestore(cfg || loadConfig(), fetchFn);
@@ -237,15 +307,24 @@ export async function main({ env = process.env, fetchFn = fetch, http, cfg, log 
   if (res.aviso) avisos.unshift(res.aviso);
   const n = Object.keys(updates).length;
   if (ignorados) log(`Ignorados ${ignorados} partidos de una temporada anterior.`);
-  log(`Resultados oficiales emparejados: ${n}.` + (avisos.length ? ` Avisos: ${avisos.length}.` : ""));
+  // Clasificación: se guarda dentro de «ejecucion» (las reglas de Firestore ya lo permiten)
+  const ce = emparejarClasificacion(clas.rows, liga);
+  if (clas.aviso) avisos.push(clas.aviso);
+  if (clasError) avisos.push(clasError);
+  avisos.push(...ce.avisos);
+  let clasificacion = ce.clasificacion;
+  if (!clasificacion.length) {   // no se pisa la última clasificación buena con una lectura vacía
+    try { const prev = await fs.get("liga/oficial"); clasificacion = (prev && prev.ejecucion && prev.ejecucion.clasificacion) || []; } catch (e) { /* sin clasificación previa */ }
+  }
+  log(`Resultados oficiales emparejados: ${n}. Clasificación: ${ce.clasificacion.length} equipos.` + (avisos.length ? ` Avisos: ${avisos.length}.` : ""));
   avisos.forEach(a => log("  - " + a));
-  if (prueba) { log("SOLO_PRUEBA=1: no se escribe nada."); return { res, updates, avisos }; }
+  if (prueba) { log("SOLO_PRUEBA=1: no se escribe nada."); return { res, updates, avisos, clasificacion }; }
 
-  const data = { ...(n ? { matches: updates } : {}), avisos, fuente: URL_RESULTADOS(CONF.deporte),
-    ejecucion: { fecha: new Date(), partidos: res.rows.length, cargados: n, semanas: res.semanas } };
+  const data = { ...(n ? { matches: updates } : {}), avisos: avisos.slice(0, 50), fuente: URL_RESULTADOS(CONF.deporte),
+    ejecucion: { fecha: new Date(), partidos: res.rows.length, cargados: n, semanas: res.semanas, clasificacion } };
   await fs.patch("liga/oficial", data, [...Object.keys(updates).map(id => `matches.${id}`), "avisos", "fuente", "ejecucion"]);
   log("Guardado en Firestore (liga/oficial).");
-  return { res, updates, avisos };
+  return { res, updates, avisos, clasificacion };
 }
 
 if (import.meta.url === `file://${process.argv[1]}` || process.argv[1]?.endsWith("importar-resultados.mjs")) {

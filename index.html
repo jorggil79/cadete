@@ -252,7 +252,11 @@ function normOficial(d){
     map[id] = {s:[a,b], d:/^\d{4}-\d{2}-\d{2}$/.test(m.d)?m.d:"", hora:typeof m.h==="string"?m.h.slice(0,5):"", pnp:!!m.posibleNP};
   }
   const e = d && d.ejecucion || {};
-  return {map, info: d ? {fecha:toDate(e.fecha), cargados:+e.cargados||0, partidos:+e.partidos||0, avisos:Array.isArray(d.avisos)?d.avisos.map(String).slice(0,50):[], fuente:typeof d.fuente==="string"?d.fuente:""} : null};
+  const clas = (Array.isArray(e.clasificacion) ? e.clasificacion : []).filter(r=>r && typeof r==="object" && r.id!=null)
+    .map(r=>{ const n0 = x => Number.isFinite(+x) ? Math.max(0, Math.round(+x)) : 0;   // sin el tope de 999 de num(): los puntos a favor lo superan
+      return {id:String(r.id), pos:n0(r.pos), pj:n0(r.pj), pg:n0(r.pg), pp:n0(r.pp), pf:n0(r.pf), pc:n0(r.pc), pts:n0(r.pts)}; })
+    .sort((a,b)=>(a.pos||99)-(b.pos||99));
+  return {map, info: d ? {fecha:toDate(e.fecha), clas, cargados:+e.cargados||0, partidos:+e.partidos||0, avisos:Array.isArray(d.avisos)?d.avisos.map(String).slice(0,50):[], fuente:typeof d.fuente==="string"?d.fuente:""} : null};
 }
 const COMP_IDS = ["cadete","nba","acb","euroliga"], PRO_IDS = ["nba","acb","euroliga"];
 const blankPerfil = () => ({myTeam:"", players:{}, sort:"p", avg:false, chart:"p", inicio:"clas", vistaPart:"jornada",
@@ -664,7 +668,17 @@ function vClas(){
   <table><tr><th>#</th><th style="text-align:left">Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>PF</th><th>PC</th><th>Dif</th><th>Pts</th></tr>
   ${rows.map((r,i)=>`<tr class="${r.n===P.myTeam?"me":""}"><td>${i+1}</td><td class="t"><b style="font-weight:inherit">${esc(tn(r.n))}</b></td><td>${r.pj}</td><td>${r.pg}</td><td>${r.pp}</td><td>${r.pf}</td><td>${r.pc}</td><td>${r.dif>0?"+":""}${r.dif}</td><td class="pts">${r.pts}</td></tr>`).join("")}
   </table><p class="note">Desempate: partidos entre los empatados (puntos, diferencia, puntos a favor) y después diferencia y puntos a favor totales. Una incomparecencia da 0 puntos.
-  ${OI&&OI.fecha?`Resultados oficiales cargados el ${esc(fdt(OI.fecha))}.`:""}</p></div>`;
+  ${OI&&OI.fecha?`Resultados oficiales cargados el ${esc(fdt(OI.fecha))}.`:""}</p></div>`
+  + vClasOficial();
+}
+// Clasificación tal como la publica la FMD (se carga junto a los resultados oficiales)
+function vClasOficial(){
+  const c = OI && OI.clas;
+  if(!c || !c.length) return "";
+  return `<div class="card"><h2>Clasificación oficial FMD</h2>
+  <table><tr><th>#</th><th style="text-align:left">Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>PF</th><th>PC</th><th>Dif</th><th>Pts</th></tr>
+  ${c.map((r,i)=>{ const d = r.pf-r.pc; return `<tr class="${r.id===P.myTeam?"me":""}"><td>${r.pos||i+1}</td><td class="t"><b style="font-weight:inherit">${esc(tn(r.id))}</b></td><td>${r.pj}</td><td>${r.pg}</td><td>${r.pp}</td><td>${r.pf}</td><td>${r.pc}</td><td>${d>0?"+":""}${d}</td><td class="pts">${r.pts}</td></tr>`; }).join("")}
+  </table><p class="note">Orden y puntos publicados por la FMD Valladolid (fase regular, solo Cadete Masculino).${OI.fecha?` Cargada el ${esc(fdt(OI.fecha))}.`:""}</p></div>`;
 }
 function scoreCell(m, k){
   if(isAdmin && !m.of) return `<input class="sc" inputmode="numeric" pattern="[0-9]*" aria-label="Puntos ${esc(tn(k?m.a:m.h))}" data-id="${esc(m.id)}" data-k="${k}" value="${m.s[k]??""}" placeholder="–">`;
@@ -747,7 +761,7 @@ function vUsuarios(){
 function vOficial(){
   const i = OI;
   return `<div class="card"><h2>Resultados oficiales</h2>
-   ${i && i.fecha ? `<p class="note">Última carga: <b>${esc(fdt(i.fecha))}</b> · ${i.cargados} resultados de ${i.partidos} partidos leídos.</p>` : `<p class="note">Todavía no se ha hecho ninguna carga automática.</p>`}
+   ${i && i.fecha ? `<p class="note">Última carga: <b>${esc(fdt(i.fecha))}</b> · ${i.cargados} resultados de ${i.partidos} partidos leídos · clasificación oficial: ${i.clas && i.clas.length ? i.clas.length+" equipos" : "sin datos"}.</p>` : `<p class="note">Todavía no se ha hecho ninguna carga automática.</p>`}
    ${i && i.avisos.length ? `<div class="warn"><b>Avisos de la última carga</b><br>${i.avisos.map(esc).join("<br>")}<br><span class="note">Si un equipo no se reconoce, cámbiale el nombre en «Equipos» para que coincida con el de la web oficial.</span></div>` : ""}
    <p class="note">Se cargan solos los miércoles a las 14:00 desde la <a href="${esc(FUENTE)}" target="_blank" rel="noopener">web de la FMD Valladolid</a> y prevalecen sobre los resultados manuales. Para cargarlos en otro momento: GitHub → Actions → «Resultados oficiales» → Run workflow.</p></div>`;
 }
