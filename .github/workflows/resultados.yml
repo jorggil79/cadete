@@ -2,8 +2,8 @@ name: Resultados oficiales
 
 on:
   schedule:
-    # Todos los miércoles a las 14:00, hora de Madrid
-    - cron: "0 14 * * 3"
+    # Todos los martes a las 15:00, hora de Madrid
+    - cron: "0 15 * * 2"
       timezone: "Europe/Madrid"
   workflow_dispatch: {}   # botón «Run workflow» para cargarlos a mano
 
