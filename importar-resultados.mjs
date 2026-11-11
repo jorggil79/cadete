@@ -167,10 +167,10 @@ export async function scrapeClasificacion({ http = makeHttp(), conf = CONF, paus
 
 // Casa los nombres de la web oficial con los equipos de la app
 export function emparejarClasificacion(rows, liga) {
-  const porNombre = new Map((liga.teams || []).map(t => [norm(t.n), t.id]));
+  const { porNombre, porSuelto } = mapasEquipos(liga);
   const clasificacion = [], avisos = [];
   for (const r of rows) {
-    const id = porNombre.get(norm(r.equipo));
+    const id = porNombre.get(norm(r.equipo)) ?? porSuelto.get(suelto(r.equipo));
     if (!id) { avisos.push(`Clasificación: equipo no reconocido «${r.equipo}»`); continue; }
     if ([r.pj, r.pg, r.pp, r.pf, r.pc, r.pts].some(v => v == null)) { avisos.push(`Clasificación: datos incompletos de «${r.equipo}»`); continue; }
     clasificacion.push({ id, pos: r.pos ?? clasificacion.length + 1, pj: r.pj, pg: r.pg, pp: r.pp, pf: r.pf, pc: r.pc, pts: r.pts });
@@ -180,19 +180,30 @@ export function emparejarClasificacion(rows, liga) {
 
 /* ---------------- Emparejar con el calendario de la app ---------------- */
 
+// Nombre «suelto»: solo letras y números, para tolerar diferencias de espacios o guiones («OCIO-SPORT» / «OCIO SPORT»)
+export const suelto = s => norm(s).replace(/[^A-Z0-9]/g, "");
+const mapasEquipos = liga => ({
+  porNombre: new Map((liga.teams || []).map(t => [norm(t.n), t.id])),
+  porSuelto: new Map((liga.teams || []).map(t => [suelto(t.n), t.id])),
+});
+
 export function emparejar(rows, liga) {
-  const porNombre = new Map((liga.teams || []).map(t => [norm(t.n), t.id]));
+  const { porNombre, porSuelto } = mapasEquipos(liga);
   const partidos = Object.entries(liga.matches || {}).map(([id, m]) => ({ id, ...m }));
   const updates = {}, avisos = [];
-  // Solo partidos de esta temporada: la web oficial mantiene los de la anterior hasta que publica los nuevos
-  const fechas = partidos.map(m => m.d).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d || "")).sort();
+  // Solo partidos de esta temporada: la web oficial mantiene los de la anterior hasta que publica los nuevos.
+  // Referencia: la fecha del primer partido de la primera jornada del calendario de la app.
+  const jMin = Math.min(...partidos.map(m => +m.j).filter(Number.isFinite));
+  const fechas = partidos.filter(m => +m.j === jMin).map(m => m.d).filter(d => /^\d{4}-\d{2}-\d{2}$/.test(d || "")).sort();
   const desde = fechas.length ? new Date(Date.parse(fechas[0]) - 45 * 864e5).toISOString().slice(0, 10) : "";
-  let ignorados = 0;
+  let ignorados = 0, leidos = 0;
+  const equipo = n => porNombre.get(norm(n)) ?? porSuelto.get(suelto(n));
   for (const r of rows) {
     if (!/^\d+$/.test(r.rl || "") || !/^\d+$/.test(r.rv || "")) continue;   // sin resultado todavía
+    leidos++;
     const fecha = isoDate(r.fecha);
     if (desde && (!fecha || fecha < desde)) { ignorados++; continue; }
-    const hl = porNombre.get(norm(r.local)), hv = porNombre.get(norm(r.visitante));
+    const hl = equipo(r.local), hv = equipo(r.visitante);
     if (!hl || !hv) {
       for (const [n, id] of [[r.local, hl], [r.visitante, hv]]) if (!id) avisos.push(`Equipo no reconocido: «${n}»`);
       continue;
@@ -208,7 +219,9 @@ export function emparejar(rows, liga) {
       j: /^\d+$/.test(r.jornada || "") ? +r.jornada : null,
       posibleNP: (a === 20 && b === 0) || (a === 0 && b === 20) };
   }
-  return { updates, avisos: [...new Set(avisos)].slice(0, 50), ignorados };
+  if (ignorados) avisos.push(`${ignorados} resultado(s) de la web ignorados por ser anteriores al ${desde} (otra temporada).`);
+  if (leidos && !Object.keys(updates).length && !avisos.length) avisos.push(`Se han leído ${leidos} resultados pero ninguno se ha podido emparejar con el calendario de la app.`);
+  return { updates, avisos: [...new Set(avisos)].slice(0, 50), ignorados, leidos };
 }
 
 /* ---------------- Firebase (REST, con la cuenta robot) ---------------- */
@@ -303,10 +316,11 @@ export async function main({ env = process.env, fetchFn = fetch, http, cfg, log 
   await fs.login(env.ROBOT_EMAIL, env.ROBOT_PASSWORD);
   const liga = await fs.get("liga/principal");
   if (!liga) throw new Error("La liga todavía no está creada en la app (entra como administrador y pulsa «Crear liga»).");
-  const { updates, avisos, ignorados } = emparejar(res.rows, liga);
+  const { updates, avisos, ignorados, leidos } = emparejar(res.rows, liga);
   if (res.aviso) avisos.unshift(res.aviso);
   const n = Object.keys(updates).length;
-  if (ignorados) log(`Ignorados ${ignorados} partidos de una temporada anterior.`);
+  if (!leidos && !res.aviso) avisos.push(`La web de la FMD no tiene todavía resultados del ${CONF.grupo} de ${CONF.categoria} (${res.rows.length} partidos leídos, ninguno con resultado).`);
+  log(`Resultados con marcador en la web: ${leidos}; ignorados por fecha: ${ignorados}; emparejados con el calendario: ${n}.`);
   // Clasificación: se guarda dentro de «ejecucion» (las reglas de Firestore ya lo permiten)
   const ce = emparejarClasificacion(clas.rows, liga);
   if (clas.aviso) avisos.push(clas.aviso);
@@ -321,7 +335,7 @@ export async function main({ env = process.env, fetchFn = fetch, http, cfg, log 
   if (prueba) { log("SOLO_PRUEBA=1: no se escribe nada."); return { res, updates, avisos, clasificacion }; }
 
   const data = { ...(n ? { matches: updates } : {}), avisos: avisos.slice(0, 50), fuente: URL_RESULTADOS(CONF.deporte),
-    ejecucion: { fecha: new Date(), partidos: res.rows.length, cargados: n, semanas: res.semanas, clasificacion } };
+    ejecucion: { fecha: new Date(), partidos: res.rows.length, leidos, cargados: n, semanas: res.semanas, clasificacion } };
   await fs.patch("liga/oficial", data, [...Object.keys(updates).map(id => `matches.${id}`), "avisos", "fuente", "ejecucion"]);
   log("Guardado en Firestore (liga/oficial).");
   return { res, updates, avisos, clasificacion };

@@ -256,7 +256,7 @@ function normOficial(d){
     .map(r=>{ const n0 = x => Number.isFinite(+x) ? Math.max(0, Math.round(+x)) : 0;   // sin el tope de 999 de num(): los puntos a favor lo superan
       return {id:String(r.id), pos:n0(r.pos), pj:n0(r.pj), pg:n0(r.pg), pp:n0(r.pp), pf:n0(r.pf), pc:n0(r.pc), pts:n0(r.pts)}; })
     .sort((a,b)=>(a.pos||99)-(b.pos||99));
-  return {map, info: d ? {fecha:toDate(e.fecha), clas, cargados:+e.cargados||0, partidos:+e.partidos||0, avisos:Array.isArray(d.avisos)?d.avisos.map(String).slice(0,50):[], fuente:typeof d.fuente==="string"?d.fuente:""} : null};
+  return {map, info: d ? {fecha:toDate(e.fecha), clas, cargados:+e.cargados||0, partidos:+e.partidos||0, leidos:e.leidos==null?null:+e.leidos||0, avisos:Array.isArray(d.avisos)?d.avisos.map(String).slice(0,50):[], fuente:typeof d.fuente==="string"?d.fuente:""} : null};
 }
 const COMP_IDS = ["cadete","nba","acb","euroliga"], PRO_IDS = ["nba","acb","euroliga"];
 const blankPerfil = () => ({myTeam:"", players:{}, sort:"p", avg:false, chart:"p", inicio:"clas", vistaPart:"jornada",
@@ -317,7 +317,7 @@ async function readLegacy(){   // datos de la versión anterior guardados en est
 let fb = null, cfg = null, auth = null, db = null, started = false;
 let user = null, isAdmin = false, U = null, L = null, O = {}, OI = null, P = null, usersList = [];
 let phase = "loading", authView = "login", authMsg = "", authInfo = "", authBusy = false, regNombre = "", fatalMsg = "", lastEmail = "";
-let tab = "clas", view = "list", cur = null, jor = null, deferredPrompt = null, firstApp = true, legacyInfo = null;
+let tab = "clas", view = "list", cur = null, jor = null, jorAuto = true, deferredPrompt = null, firstApp = true, legacyInfo = null;
 let unsubData = [], unsubUser = null, dataOn = false, creatingReq = false, creatingPerfil = false, perfilMissing = false, ligaMissing = false, lastPending = -1;
 let M = [];
 const meta = {liga:null, perfil:null}, lastJson = {};
@@ -377,7 +377,7 @@ async function logout(){
 
 function onUser(u){
   stopAll(); flushTimers();
-  user = u; U = null; L = null; O = {}; OI = null; P = null; usersList = []; jor = null; cur = null; firstApp = true;
+  user = u; U = null; L = null; O = {}; OI = null; P = null; usersList = []; jor = null; jorAuto = true; cur = null; firstApp = true;
   for(const c of PRO_IDS) PRO[c] = null; ROST = null; ESPA = {add:[], quitar:[]}; proCur = null;
   creatingReq = creatingPerfil = perfilMissing = ligaMissing = false; lastPending = -1;
   for(const k of Object.keys(lastJson)) delete lastJson[k];
@@ -463,7 +463,7 @@ function afterData(){
   if(perfilMissing && !creatingPerfil) createPerfil();
   if(!P) return;
   M = effMatches();
-  if(jor==null) initJor();
+  if(jor==null || jorAuto) initJor();
   syncNbaj();
   if(phase!=="app"){
     phase = "app";
@@ -514,7 +514,15 @@ function effMatches(){
 }
 const nj = () => Math.max(1, ...L.matches.map(m=>m.j));
 const jorDate = j => M.filter(m=>m.j===j).map(m=>m.d).filter(Boolean).sort()[0] || "";
-function initJor(){ const today = todayLocal(); const m = M.slice().sort(byDate).find(x=>x.d>=today && !played(x)); jor = m ? m.j : nj(); }
+// Jornada que se abre en «Partidos»: la próxima si empieza hoy o mañana; si no, la última que ya tiene resultados
+// (así, entre semana se ven los resultados del fin de semana). Se recalcula hasta que el usuario cambia de jornada.
+function initJor(){
+  const today = todayLocal(), sorted = M.slice().sort(byDate);
+  const next = sorted.find(x=>x.d>=today && !played(x)), last = sorted.filter(played).pop();
+  const dias = d => Math.round((Date.parse(d+"T00:00:00") - Date.parse(today+"T00:00:00")) / 864e5);
+  if(next && last && last.j<next.j && dias(jorDate(next.j) || next.d) > 1) jor = last.j;
+  else jor = next ? next.j : (last ? last.j : nj());
+}
 function clsPts(m, side){ const me = side==="h"?m.s[0]:m.s[1], ot = side==="h"?m.s[1]:m.s[0];
   return me>ot ? L.win : me<ot ? (m.np===side ? 0 : L.loss) : L.draw; }
 function standings(){
@@ -762,7 +770,7 @@ function vUsuarios(){
 function vOficial(){
   const i = OI;
   return `<div class="card"><h2>Resultados oficiales</h2>
-   ${i && i.fecha ? `<p class="note">Última carga: <b>${esc(fdt(i.fecha))}</b> · ${i.cargados} resultados de ${i.partidos} partidos leídos · clasificación oficial: ${i.clas && i.clas.length ? i.clas.length+" equipos" : "sin datos"}.</p>` : `<p class="note">Todavía no se ha hecho ninguna carga automática.</p>`}
+   ${i && i.fecha ? `<p class="note">Última carga: <b>${esc(fdt(i.fecha))}</b> · ${i.cargados} resultados cargados${i.leidos!=null?` de ${i.leidos} con marcador en la web`:""} (${i.partidos} partidos leídos) · clasificación oficial: ${i.clas && i.clas.length ? i.clas.length+" equipos" : "sin datos"}.</p>` : `<p class="note">Todavía no se ha hecho ninguna carga automática.</p>`}
    ${i && i.avisos.length ? `<div class="warn"><b>Avisos de la última carga</b><br>${i.avisos.map(esc).join("<br>")}<br><span class="note">Si un equipo no se reconoce, cámbiale el nombre en «Equipos» para que coincida con el de la web oficial.</span></div>` : ""}
    <p class="note">Se cargan solos los miércoles a las 14:00 desde la <a href="${esc(FUENTE)}" target="_blank" rel="noopener">web de la FMD Valladolid</a> y prevalecen sobre los resultados manuales. Con el botón se cargan ahora, junto con la clasificación oficial; tarda un par de minutos y los datos aparecen solos al terminar.</p>
    ${ghCfg().token
@@ -1353,7 +1361,7 @@ function bind(){
   if(comp!=="cadete" && tab!=="aju"){ bindPro(); return; }
   if(tab==="part"){
     app.querySelectorAll("[data-vp]").forEach(b=>b.onclick=()=>{ savePrefs({vistaPart:b.dataset.vp}); render(); });
-    const goJ = j => { jor = Math.min(nj(), Math.max(1,j)); render(); };
+    const goJ = j => { jorAuto = false; jor = Math.min(nj(), Math.max(1,j)); render(); };
     on("pj", () => goJ(jor-1)); on("nj", () => goJ(jor+1)); on("sj", e => goJ(+e.target.value), "onchange");
     app.querySelectorAll(".sc").forEach(inp=>inp.oninput=()=>{ inp.value = inp.value.replace(/\D/g,"").slice(0,3);
       const m = Lm(inp.dataset.id); if(!m) return; m.s[+inp.dataset.k] = num(inp.value); saveScore(m); });
