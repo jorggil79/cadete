@@ -508,9 +508,25 @@ window.addEventListener("online", setSt); window.addEventListener("offline", ()=
 function toast(t){ const el = $("toast"); el.textContent = t; el.classList.add("on"); clearTimeout(toast.t); toast.t = setTimeout(()=>el.classList.remove("on"), 3000); }
 
 /* ========== Cálculos ========== */
+// Resultados oficiales de la FMD ya publicados, incluidos en la app para que los vean TODOS los usuarios al conectarse,
+// aunque la carga automática (liga/oficial) todavía no los haya guardado. Los de Firestore tienen prioridad sobre estos.
+// Formato: [jornada, fecha, hora, local, puntos local, puntos visitante, visitante]
+const OFICIAL_INICIAL = [
+  [1,"2026-11-07","09:15","CONDESA EYLO - OCIO-SPORT",2,53,"EL PILAR"],
+  [1,"2026-11-07","09:15","LA SALLE",49,29,"CD MARISTAS CCV - AZUL"],
+  [1,"2026-11-07","10:30","IVECO CBC-ELALO - 2012",45,47,"CD RENEDO 2018"],
+  [1,"2026-11-07","10:30","CD MARISTAS CCV - BLANCO",17,36,"LA ENSEÑANZA - B"],
+  [1,"2026-11-07","11:45","SAN AGUSTIN",46,43,"BASKET LA CISTERNIGA"],
+  [1,"2026-11-07","11:45","APOSTOLADO - BLANCO",17,67,"BALONCESTO LA FLECHA - A"],
+  [1,"2026-11-07","12:30","BALONCESTO LA FLECHA - B",36,25,"SAN JOSE - IGNACIO"],
+  [1,"2026-11-07","12:30","CB VILLA DE LAGUNA - BLANCO",20,36,"LOURDES - BUJEDO"],
+  [1,"2026-11-07","13:00","TIERNO GALVAN",57,30,"AYTO. SANTOVENIA"],
+];
+const looseName = s => normName(s).replace(/[^A-Z0-9]/g,"");
+const SEED = new Map(OFICIAL_INICIAL.map(r=>[r[0]+"|"+looseName(r[3])+"|"+looseName(r[6]), {s:[r[4],r[5]], d:r[1], hora:r[2]}]));
 function effMatches(){
-  return L.matches.map(m=>{ const o = O[m.id];
-    return o ? {...m, s:o.s, d:o.d||m.d, hora:o.hora||m.hora, of:true, pnp:o.pnp} : {...m, s:[m.s[0],m.s[1]], of:false, pnp:false}; });
+  return L.matches.map(m=>{ const o = O[m.id] || SEED.get(m.j+"|"+looseName(L.tname[m.h])+"|"+looseName(L.tname[m.a]));
+    return o ? {...m, s:o.s, d:o.d||m.d, hora:o.hora||m.hora, of:true, pnp:!!o.pnp} : {...m, s:[m.s[0],m.s[1]], of:false, pnp:false}; });
 }
 const nj = () => Math.max(1, ...L.matches.map(m=>m.j));
 const jorDate = j => M.filter(m=>m.j===j).map(m=>m.d).filter(Boolean).sort()[0] || "";
@@ -669,10 +685,10 @@ function tablaClas(){
   const ofPl = Math.round(c.reduce((s,r)=>s+r.pj,0)/2);
   if(c.length && c.length>=L.teams.length && ofPl>=pl)
     return {oficial:true, pl:ofPl, rows:c.map(r=>({n:r.id, pj:r.pj, pg:r.pg, pp:r.pp, pf:r.pf, pc:r.pc, pts:r.pts, dif:r.pf-r.pc}))};
-  return {oficial:false, pl, rows:calc};
+  return {oficial:false, pl, rows:calc, deOficiales:M.filter(played).every(m=>m.of)};
 }
 function vClas(){
-  const {rows, pl, oficial} = tablaClas();
+  const {rows, pl, oficial, deOficiales} = tablaClas();
   let top = "";
   if(isIOS && !standalone() && location.protocol==="https:") top += `<div class="warn">En iPhone y iPad, instala la app (Compartir → «Añadir a pantalla de inicio») para usarla sin conexión.</div>`;
   if(!P.myTeam && !P.players.length) top += `<div class="card"><h2>Bienvenido${U&&U.nombre?", "+esc(U.nombre):""}</h2><p class="note">Elige tu equipo en <b>Ajustes</b> para verlo resaltado y añade tus jugadores en <b>Jugadores</b>. ${isAdmin?"Como administrador, puedes introducir resultados en <b>Partidos</b>.":"Los resultados los publica el administrador; los oficiales se cargan cada miércoles."}</p></div>`;
@@ -682,12 +698,12 @@ function vClas(){
     const line = (m,lab) => { const r = rival(P.myTeam, m.j); return `<div><span>${lab} · J${m.j} · ${fdate(m.d)}${m.hora?" "+esc(m.hora):""}</span>${r.home?"vs":"en"} ${esc(tn(r.opp))}${r.res?` · <b>${r.res}</b>`:""}</div>`; };
     top += `<div class="card"><h2>${esc(tn(P.myTeam))} <span class="badge">${pos}º</span></h2><div class="mini">${last?line(last,"Último"):""}${next?line(next,"Próximo"):""}</div></div>`;
   }
-  return top + `<div class="card"><h2>Clasificación <span class="badge">${pl}/${M.length} partidos</span> ${oficial?`<span class="tag of">Oficial FMD</span>`:`<span class="tag pr">Provisional</span>`}</h2>
+  return top + `<div class="card"><h2>Clasificación <span class="badge">${pl}/${M.length} partidos</span> ${oficial?`<span class="tag of">Oficial FMD</span>`:pl && deOficiales?`<span class="tag of">Con resultados oficiales</span>`:`<span class="tag pr">Provisional</span>`}</h2>
   <table><tr><th>#</th><th style="text-align:left">Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>PF</th><th>PC</th><th>Dif</th><th>Pts</th></tr>
   ${rows.map((r,i)=>`<tr class="${r.n===P.myTeam?"me":""}"><td>${i+1}</td><td class="t"><b style="font-weight:inherit">${esc(tn(r.n))}</b></td><td>${r.pj}</td><td>${r.pg}</td><td>${r.pp}</td><td>${r.pf}</td><td>${r.pc}</td><td>${r.dif>0?"+":""}${r.dif}</td><td class="pts">${r.pts}</td></tr>`).join("")}
   </table><p class="note">${oficial
     ? `Orden y puntos publicados por la FMD Valladolid${OI&&OI.fecha?` (cargada el ${esc(fdt(OI.fecha))})`:""}.`
-    : `Calculada con los resultados cargados; cuando la FMD publique su clasificación con todos ellos, se mostrará esa. Desempate: partidos entre los empatados (puntos, diferencia, puntos a favor) y después diferencia y puntos a favor totales. Una incomparecencia da 0 puntos.`}</p></div>`;
+    : `${pl && deOficiales ? "Calculada con los resultados oficiales de la FMD" : "Calculada con los resultados cargados"}; cuando la FMD publique su clasificación con todos ellos, se mostrará esa. Desempate: partidos entre los empatados (puntos, diferencia, puntos a favor) y después diferencia y puntos a favor totales. Una incomparecencia da 0 puntos.`}</p></div>`;
 }
 function scoreCell(m, k){
   if(isAdmin && !m.of) return `<input class="sc" inputmode="numeric" pattern="[0-9]*" aria-label="Puntos ${esc(tn(k?m.a:m.h))}" data-id="${esc(m.id)}" data-k="${k}" value="${m.s[k]??""}" placeholder="–">`;
