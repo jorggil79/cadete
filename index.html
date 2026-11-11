@@ -653,8 +653,18 @@ function copyUid(){
 }
 
 /* ========== Vistas de la app ========== */
+// Tabla que se muestra: la oficial de la FMD cuando está al día; si el administrador ha metido más resultados
+// de los que ya cuenta la FMD, la provisional calculada con ellos (se sustituye sola al publicarse la oficial).
+function tablaClas(){
+  const calc = standings(), pl = M.filter(played).length;
+  const c = OI && OI.clas ? OI.clas.filter(r=>L.tname[r.id]) : [];
+  const ofPl = Math.round(c.reduce((s,r)=>s+r.pj,0)/2);
+  if(c.length && c.length>=L.teams.length && ofPl>=pl)
+    return {oficial:true, pl:ofPl, rows:c.map(r=>({n:r.id, pj:r.pj, pg:r.pg, pp:r.pp, pf:r.pf, pc:r.pc, pts:r.pts, dif:r.pf-r.pc}))};
+  return {oficial:false, pl, rows:calc};
+}
 function vClas(){
-  const rows = standings(), pl = M.filter(played).length;
+  const {rows, pl, oficial} = tablaClas();
   let top = "";
   if(isIOS && !standalone() && location.protocol==="https:") top += `<div class="warn">En iPhone y iPad, instala la app (Compartir → «Añadir a pantalla de inicio») para usarla sin conexión.</div>`;
   if(!P.myTeam && !P.players.length) top += `<div class="card"><h2>Bienvenido${U&&U.nombre?", "+esc(U.nombre):""}</h2><p class="note">Elige tu equipo en <b>Ajustes</b> para verlo resaltado y añade tus jugadores en <b>Jugadores</b>. ${isAdmin?"Como administrador, puedes introducir resultados en <b>Partidos</b>.":"Los resultados los publica el administrador; los oficiales se cargan cada miércoles."}</p></div>`;
@@ -664,21 +674,12 @@ function vClas(){
     const line = (m,lab) => { const r = rival(P.myTeam, m.j); return `<div><span>${lab} · J${m.j} · ${fdate(m.d)}${m.hora?" "+esc(m.hora):""}</span>${r.home?"vs":"en"} ${esc(tn(r.opp))}${r.res?` · <b>${r.res}</b>`:""}</div>`; };
     top += `<div class="card"><h2>${esc(tn(P.myTeam))} <span class="badge">${pos}º</span></h2><div class="mini">${last?line(last,"Último"):""}${next?line(next,"Próximo"):""}</div></div>`;
   }
-  return top + `<div class="card"><h2>Clasificación <span class="badge">${pl}/${M.length} partidos</span></h2>
+  return top + `<div class="card"><h2>Clasificación <span class="badge">${pl}/${M.length} partidos</span> ${oficial?`<span class="tag of">Oficial FMD</span>`:`<span class="tag pr">Provisional</span>`}</h2>
   <table><tr><th>#</th><th style="text-align:left">Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>PF</th><th>PC</th><th>Dif</th><th>Pts</th></tr>
   ${rows.map((r,i)=>`<tr class="${r.n===P.myTeam?"me":""}"><td>${i+1}</td><td class="t"><b style="font-weight:inherit">${esc(tn(r.n))}</b></td><td>${r.pj}</td><td>${r.pg}</td><td>${r.pp}</td><td>${r.pf}</td><td>${r.pc}</td><td>${r.dif>0?"+":""}${r.dif}</td><td class="pts">${r.pts}</td></tr>`).join("")}
-  </table><p class="note">Desempate: partidos entre los empatados (puntos, diferencia, puntos a favor) y después diferencia y puntos a favor totales. Una incomparecencia da 0 puntos.
-  ${OI&&OI.fecha?`Resultados oficiales cargados el ${esc(fdt(OI.fecha))}.`:""}</p></div>`
-  + vClasOficial();
-}
-// Clasificación tal como la publica la FMD (se carga junto a los resultados oficiales)
-function vClasOficial(){
-  const c = OI && OI.clas;
-  if(!c || !c.length) return "";
-  return `<div class="card"><h2>Clasificación oficial FMD</h2>
-  <table><tr><th>#</th><th style="text-align:left">Equipo</th><th>PJ</th><th>PG</th><th>PP</th><th>PF</th><th>PC</th><th>Dif</th><th>Pts</th></tr>
-  ${c.map((r,i)=>{ const d = r.pf-r.pc; return `<tr class="${r.id===P.myTeam?"me":""}"><td>${r.pos||i+1}</td><td class="t"><b style="font-weight:inherit">${esc(tn(r.id))}</b></td><td>${r.pj}</td><td>${r.pg}</td><td>${r.pp}</td><td>${r.pf}</td><td>${r.pc}</td><td>${d>0?"+":""}${d}</td><td class="pts">${r.pts}</td></tr>`; }).join("")}
-  </table><p class="note">Orden y puntos publicados por la FMD Valladolid (fase regular, solo Cadete Masculino).${OI.fecha?` Cargada el ${esc(fdt(OI.fecha))}.`:""}</p></div>`;
+  </table><p class="note">${oficial
+    ? `Orden y puntos publicados por la FMD Valladolid${OI&&OI.fecha?` (cargada el ${esc(fdt(OI.fecha))})`:""}.`
+    : `Calculada con los resultados cargados; cuando la FMD publique su clasificación con todos ellos, se mostrará esa. Desempate: partidos entre los empatados (puntos, diferencia, puntos a favor) y después diferencia y puntos a favor totales. Una incomparecencia da 0 puntos.`}</p></div>`;
 }
 function scoreCell(m, k){
   if(isAdmin && !m.of) return `<input class="sc" inputmode="numeric" pattern="[0-9]*" aria-label="Puntos ${esc(tn(k?m.a:m.h))}" data-id="${esc(m.id)}" data-k="${k}" value="${m.s[k]??""}" placeholder="–">`;
