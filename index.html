@@ -763,7 +763,10 @@ function vOficial(){
   return `<div class="card"><h2>Resultados oficiales</h2>
    ${i && i.fecha ? `<p class="note">Última carga: <b>${esc(fdt(i.fecha))}</b> · ${i.cargados} resultados de ${i.partidos} partidos leídos · clasificación oficial: ${i.clas && i.clas.length ? i.clas.length+" equipos" : "sin datos"}.</p>` : `<p class="note">Todavía no se ha hecho ninguna carga automática.</p>`}
    ${i && i.avisos.length ? `<div class="warn"><b>Avisos de la última carga</b><br>${i.avisos.map(esc).join("<br>")}<br><span class="note">Si un equipo no se reconoce, cámbiale el nombre en «Equipos» para que coincida con el de la web oficial.</span></div>` : ""}
-   <p class="note">Se cargan solos los miércoles a las 14:00 desde la <a href="${esc(FUENTE)}" target="_blank" rel="noopener">web de la FMD Valladolid</a> y prevalecen sobre los resultados manuales. Para cargarlos en otro momento: GitHub → Actions → «Resultados oficiales» → Run workflow.</p></div>`;
+   <p class="note">Se cargan solos los miércoles a las 14:00 desde la <a href="${esc(FUENTE)}" target="_blank" rel="noopener">web de la FMD Valladolid</a> y prevalecen sobre los resultados manuales. Con el botón se cargan ahora, junto con la clasificación oficial; tarda un par de minutos y los datos aparecen solos al terminar.</p>
+   ${ghCfg().token
+     ? `${ghStatus(GH_WF_RES)}<button class="btn" id="ghRunRes" ${ghBusy(GH_WF_RES)?"disabled":""}>${ghBusy(GH_WF_RES)?"Actualizando…":"Actualizar resultados del Cadete B"}</button>`
+     : `<p class="note">Para usar el botón guarda antes el token de GitHub en la tarjeta «Actualizar NBA, ACB y Euroliga» (es el mismo para las dos).</p>`}</div>`;
 }
 function vAju(){
   const nombre = (U && U.nombre) || (user && user.displayName) || "";
@@ -1129,8 +1132,9 @@ function openFr(tid){
 }
 // Actualización manual (administrador): lanza en GitHub el proceso «NBA, ACB y Euroliga» en modo completo.
 // El token de GitHub (solo permiso de Actions en el repositorio) se guarda únicamente en este dispositivo.
-const GH_KEY = "cadeteB_gh", GH_WF = "profesional.yml";
-let ghRun = null, ghPoll = null;
+// Dos procesos: «profesional.yml» (NBA, ACB y Euroliga) y «resultados.yml» (resultados y clasificación del Cadete B). Comparten el token.
+const GH_KEY = "cadeteB_gh", GH_WF = "profesional.yml", GH_WF_RES = "resultados.yml";
+const ghRuns = {}, ghPolls = {};
 function guessRepo(){ const m = location.hostname.match(/^([a-z0-9-]+)\.github\.io$/i), seg = location.pathname.split("/").filter(Boolean)[0];
   return m && seg && !/\.html?$/i.test(seg) ? m[1]+"/"+seg : ""; }
 function ghCfg(){ const c = lsGet(GH_KEY) || {}; return {repo:c.repo || guessRepo(), token:c.token || "", branch:c.branch || "main"}; }
@@ -1141,18 +1145,18 @@ async function gh(path, opts){
   if(!r.ok){ let m = ""; try{ m = (await r.json()).message || ""; }catch(e){} throw Object.assign(new Error(m || "GitHub respondió "+r.status), {status:r.status}); }
   return r.status===204 ? null : r.json();
 }
-function ghErr(e){
+function ghErr(e, wf){
   if(!e || !e.status) return "No se ha podido contactar con GitHub. Comprueba la conexión.";
   if(e.status===401) return "El token no es válido o ha caducado. Crea uno nuevo y vuelve a guardarlo.";
   if(e.status===403) return "El token no tiene permiso para ejecutar acciones en este repositorio (necesita «Actions: Read and write»).";
-  if(e.status===404) return "No se encuentra el repositorio o el proceso .github/workflows/"+GH_WF+" (¿está subido?). Revisa también que el token tenga acceso a ese repositorio.";
+  if(e.status===404) return "No se encuentra el repositorio o el proceso .github/workflows/"+(wf||GH_WF)+" (¿está subido?). Revisa también que el token tenga acceso a ese repositorio.";
   if(e.status===422) return "GitHub ha rechazado la ejecución: "+e.message;
   return "Error de GitHub: "+e.message;
 }
 const lastLoads = () => PRO_IDS.map(k=>`${COMPS[k].n}: ${PRO[k] && PRO[k].act ? fdt(PRO[k].act) : "sin datos"}`).join(" · ");
 function vGhCard(){
   const c = ghCfg();
-  const st = ghRun ? `<div class="${ghRun.err?"warn":"info"}">${esc(ghRun.txt)}${ghRun.url?` · <a href="${esc(ghRun.url)}" target="_blank" rel="noopener">ver en GitHub</a>`:""}</div>` : "";
+  const st = ghStatus(GH_WF);
   if(!c.token) return `<div class="card"><h2>Actualizar NBA, ACB y Euroliga</h2>
     <p class="note">Para lanzar la actualización desde aquí, la app necesita un token de GitHub que solo permita ejecutar las acciones de tu repositorio. Se guarda únicamente en este dispositivo.</p>
     <label class="f">Repositorio (usuario/repositorio)<input class="txt" id="ghRepo" value="${esc(c.repo)}" placeholder="usuario/repositorio" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
@@ -1162,33 +1166,37 @@ function vGhCard(){
     <p class="note">Última actualización · ${esc(lastLoads())}</p></div>`;
   return `<div class="card"><h2>Actualizar NBA, ACB y Euroliga</h2>
     <p class="note">Carga ahora los partidos, clasificaciones y estadísticas que falten desde el inicio de cada temporada; lo que ya está guardado no se repite. Tarda entre 1 y 10 minutos y los datos aparecen solos al terminar.</p>
-    ${st}<button class="btn" id="ghRun" ${ghRun&&ghRun.busy?"disabled":""}>${ghRun&&ghRun.busy?"Actualizando…":"Actualizar ahora"}</button>
+    ${st}<button class="btn" id="ghRun" ${ghBusy(GH_WF)?"disabled":""}>${ghBusy(GH_WF)?"Actualizando…":"Actualizar ahora"}</button>
     <p class="note">Última actualización · ${esc(lastLoads())}</p>
     <p class="note">Repositorio ${esc(c.repo)} · <button class="lnk" id="ghForget">Olvidar el token</button></p></div>`;
 }
-function ghState(s){ ghRun = s; if(phase==="app" && tab==="aju") scheduleRender(); }
-async function runGh(){
+function ghState(wf, s){ ghRuns[wf] = s; if(phase==="app" && tab==="aju") scheduleRender(); }
+const ghBusy = wf => !!(ghRuns[wf] && ghRuns[wf].busy);
+function ghStatus(wf){ const s = ghRuns[wf];
+  return s ? `<div class="${s.err?"warn":"info"}">${esc(s.txt)}${s.url?` · <a href="${esc(s.url)}" target="_blank" rel="noopener">ver en GitHub</a>`:""}</div>` : ""; }
+// Lanza un proceso de GitHub Actions y espera a que termine. inputs: parámetros del proceso (opcional).
+async function runGh(wf, inputs, okTxt){
   const c = ghCfg(), since = Date.now() - 120000;
-  ghState({busy:true, txt:"Pidiendo a GitHub que empiece la actualización…"});
-  try{ await gh(`/repos/${c.repo}/actions/workflows/${GH_WF}/dispatches`, {method:"POST", body:JSON.stringify({ref:c.branch, inputs:{max_estadisticas:"2000"}})}); }
-  catch(e){ ghState({err:true, txt:ghErr(e)}); return; }
-  ghState({busy:true, txt:"En cola en GitHub…"}); pollGh(since, 0);
+  ghState(wf, {busy:true, txt:"Pidiendo a GitHub que empiece la actualización…"});
+  try{ await gh(`/repos/${c.repo}/actions/workflows/${wf}/dispatches`, {method:"POST", body:JSON.stringify({ref:c.branch, ...(inputs?{inputs}:{})})}); }
+  catch(e){ ghState(wf, {err:true, txt:ghErr(e, wf)}); return; }
+  ghState(wf, {busy:true, txt:"En cola en GitHub…"}); pollGh(wf, since, 0, okTxt);
 }
-function pollGh(since, n){
-  clearTimeout(ghPoll);
-  ghPoll = setTimeout(async () => {
+function pollGh(wf, since, n, okTxt){
+  clearTimeout(ghPolls[wf]);
+  ghPolls[wf] = setTimeout(async () => {
     let run = null;
-    try{ const r = await gh(`/repos/${ghCfg().repo}/actions/workflows/${GH_WF}/runs?event=workflow_dispatch&per_page=5`);
+    try{ const r = await gh(`/repos/${ghCfg().repo}/actions/workflows/${wf}/runs?event=workflow_dispatch&per_page=5`);
       run = (r && r.workflow_runs || []).filter(x=>Date.parse(x.created_at)>=since).sort((a,b)=>Date.parse(b.created_at)-Date.parse(a.created_at))[0] || null; }
-    catch(e){ if(n>5){ ghState({err:true, txt:ghErr(e)}); return; } }
+    catch(e){ if(n>5){ ghState(wf, {err:true, txt:ghErr(e, wf)}); return; } }
     if(run && run.status==="completed"){
-      ghState(run.conclusion==="success" ? {txt:"Actualización terminada. Los datos ya están en la app.", url:run.html_url}
+      ghState(wf, run.conclusion==="success" ? {txt:okTxt || "Actualización terminada. Los datos ya están en la app.", url:run.html_url}
         : {err:true, txt:`La actualización no ha terminado bien (${run.conclusion}). Abre el detalle en GitHub para ver el motivo.`, url:run.html_url});
       return;
     }
-    if(n>=100){ ghState({err:true, txt:"La actualización está tardando más de lo normal. Revisa su estado en GitHub.", url:run && run.html_url}); return; }
-    ghState({busy:true, txt: run && run.status==="in_progress" ? "Actualizando en GitHub… (puede tardar unos minutos)" : "En cola en GitHub…", url:run && run.html_url});
-    pollGh(since, n+1);
+    if(n>=100){ ghState(wf, {err:true, txt:"La actualización está tardando más de lo normal. Revisa su estado en GitHub.", url:run && run.html_url}); return; }
+    ghState(wf, {busy:true, txt: run && run.status==="in_progress" ? "Actualizando en GitHub… (puede tardar unos minutos)" : "En cola en GitHub…", url:run && run.html_url});
+    pollGh(wf, since, n+1, okTxt);
   }, n===0 ? 4000 : 10000);
 }
 function bindGh(){
@@ -1203,8 +1211,10 @@ function bindGh(){
       toast("Token guardado en este dispositivo"); render(); }
     catch(e){ try{ localStorage.removeItem(GH_KEY); }catch(x){} msg.innerHTML = `<div class="warn">${esc(ghErr(e))}</div>`; b.disabled = false; b.textContent = "Guardar"; }
   });
-  on("ghForget", () => { if(!confirm("¿Olvidar el token de GitHub en este dispositivo?")) return; try{ localStorage.removeItem(GH_KEY); }catch(e){} clearTimeout(ghPoll); ghRun = null; render(); });
-  on("ghRun", runGh);
+  on("ghForget", () => { if(!confirm("¿Olvidar el token de GitHub en este dispositivo?")) return; try{ localStorage.removeItem(GH_KEY); }catch(e){}
+    Object.values(ghPolls).forEach(clearTimeout); Object.keys(ghRuns).forEach(k=>delete ghRuns[k]); render(); });
+  on("ghRun", () => runGh(GH_WF, {max_estadisticas:"2000"}));
+  on("ghRunRes", () => runGh(GH_WF_RES, null, "Resultados cargados. Ya aparecen en la app."));
 }
 function vProAju(){
   const comps = visibleComps();
