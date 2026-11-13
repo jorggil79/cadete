@@ -5,7 +5,7 @@
 // Escribe con la cuenta «robot» (secretos ROBOT_EMAIL y ROBOT_PASSWORD). Node 20 o superior, sin dependencias.
 // SOLO_PRUEBA=1 lee las fuentes y muestra un resumen sin escribir nada.
 
-import { firestore, loadConfig } from "./importar-resultados.mjs";
+import { firestore, loadConfig, fueraDePlazo, AVISO_PLAZO } from "./importar-resultados.mjs";
 
 const ESPN = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba";
 const ESPN2 = "https://site.api.espn.com/apis/v2/sports/basketball/nba";
@@ -202,6 +202,7 @@ export async function importACB({ fetchFn = fetch, log = console.log } = {}) {
 
 /* ======================= Programa principal ======================= */
 export async function main({ env = process.env, fetchFn = fetch, cfg, log = console.log, now = new Date() } = {}) {
+  if (fueraDePlazo(now)) { log(AVISO_PLAZO(now)); return { fueraDePlazo: true, writes: [] }; }
   const prueba = env.SOLO_PRUEBA === "1";
   if (!prueba && (!env.ROBOT_EMAIL || !env.ROBOT_PASSWORD)) throw new Error("Faltan los secretos ROBOT_EMAIL y ROBOT_PASSWORD.");
   let fs = null, prevNba = null;

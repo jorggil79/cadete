@@ -16,6 +16,13 @@ export const CONF = {
   grupo: process.env.GRUPO || "Grupo B",
   fase: process.env.FASE || "Fase Regular",
 };
+// Límite de las actualizaciones: los procesos de carga (resultados del Cadete y NBA/ACB/Euroliga) solo se ejecutan
+// hasta esta fecha, inclusive, en hora de Madrid. Pasada la fecha terminan al instante sin leer ni escribir nada.
+// (La app tiene la misma fecha en ACTUALIZAR_HASTA, dentro de index.html.)
+export const FECHA_LIMITE = "2027-07-01";
+export const hoyMadrid = (now = new Date()) => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Madrid", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+export const fueraDePlazo = (now = new Date()) => hoyMadrid(now) > FECHA_LIMITE;
+export const AVISO_PLAZO = (now = new Date()) => `Actualizaciones finalizadas: este proceso solo se ejecuta hasta el 1 de julio de 2027 (hoy es ${hoyMadrid(now)}). No se ha leído ni cargado nada.`;
 const URL_RESULTADOS = d => "https://deporteescolar.fmdva.org/resultados.aspx?d=" + encodeURIComponent(d);
 const PAUSA_MS = 800;   // pausa entre peticiones para no cargar la web oficial
 
@@ -294,7 +301,8 @@ export function firestore(cfg, fetchFn = fetch) {
 
 /* ---------------- Programa principal ---------------- */
 
-export async function main({ env = process.env, fetchFn = fetch, http, cfg, log = console.log } = {}) {
+export async function main({ env = process.env, fetchFn = fetch, http, cfg, log = console.log, now = new Date() } = {}) {
+  if (fueraDePlazo(now)) { log(AVISO_PLAZO(now)); return { fueraDePlazo: true }; }
   const prueba = env.SOLO_PRUEBA === "1";
   if (!prueba && (!env.ROBOT_EMAIL || !env.ROBOT_PASSWORD)) throw new Error("Faltan los secretos ROBOT_EMAIL y ROBOT_PASSWORD (GitHub → Settings → Secrets and variables → Actions).");
   const res = await scrape({ http });
