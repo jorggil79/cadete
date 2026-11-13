@@ -440,28 +440,54 @@ async function gfetch(url, opts) {
   if (!r.ok) throw new AiErr(String((j && j.error && (j.error.message || j.error)) || ("Error " + r.status)).slice(0, 200), r.status);
   return j;
 }
-let modelCache = "";
-async function pickModel(key) {
-  if (modelCache) return modelCache;
+let modelList = null, modelIdx = 0, modelCache = "", modelAt = 0;   // modelos candidatos por orden de preferencia, el que funciona, su nombre y desde cuándo
+const resetModels = () => { modelList = null; modelIdx = 0; modelCache = ""; modelAt = 0; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function listModels(key) {
+  if (modelList) return modelList;
   const j = await gfetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", { headers: { "x-goog-api-key": key } });
   const ms = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes("generateContent") && /gemini/.test(m.name) && !/(image|tts|live|audio|embed|robotics|computer|vision|learnlm|gemma|native)/.test(m.name)).map(m => m.name.replace("models/", ""));
   if (!ms.length) throw new AiErr("Tu clave de Gemini no tiene modelos disponibles.", 404);
   const score = n => { const v = parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0); return v * 100 + (/flash/.test(n) ? 10 : 0) - (/lite/.test(n) ? 4 : 0) - (/preview|exp/.test(n) ? 1 : 0); };
-  modelCache = ms.includes("gemini-flash-latest") ? "gemini-flash-latest" : ms.sort((a, b) => score(b) - score(a))[0];
-  return modelCache;
+  const sorted = ms.slice().sort((a, b) => score(b) - score(a)), order = [], add = n => { if (n && ms.includes(n) && !order.includes(n)) order.push(n); };
+  // Primero el alias «flash» más reciente, luego otros flash, luego los «lite» (más ligeros: suelen tener hueco cuando el flash está saturado) y por último el resto
+  add("gemini-flash-latest");
+  sorted.filter(n => /flash/.test(n) && !/lite/.test(n)).slice(0, 2).forEach(add);
+  add("gemini-flash-lite-latest");
+  sorted.filter(n => /lite/.test(n)).slice(0, 1).forEach(add);
+  sorted.forEach(add);
+  modelList = order.slice(0, 6);
+  return modelList;
 }
+// Gemini gratuito se satura a ratos (503) o agota la cuota de un modelo (429): se reintenta y se prueba con el siguiente modelo
 async function gemini(body) {
   const key = getKey();
   if (!key) throw new AiErr("NOKEY", 0);
-  const model = await pickModel(key);
-  try {
-    return await gfetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(body) });
-  } catch (e) { if (e.status === 404) modelCache = ""; throw e; }
+  const list = await listModels(key);
+  let last = null;
+  const from = Date.now() - modelAt > 300000 ? 0 : modelIdx;   // pasados 5 min se vuelve a intentar con el mejor modelo
+  for (let k = 0; k < Math.min(list.length, 4); k++) {
+    const i = (from + k) % list.length, model = list[i];
+    for (let intento = 0; intento < 2; intento++) {
+      try {
+        const r = await gfetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(body) });
+        modelIdx = i; modelCache = model; modelAt = Date.now(); return r;
+      } catch (e) {
+        last = e;
+        if (e.status === 404) break;                                  // ese modelo no está disponible con esta clave: siguiente
+        if (![429, 500, 502, 503, 504].includes(e.status)) throw e;   // sin conexión, clave mala, petición mala…: cambiar de modelo no lo arregla
+        if (intento === 0 && e.status !== 429) { await sleep(700); continue; }   // saturación: un reintento corto con el mismo modelo
+        break;                                                        // cuota agotada o sigue saturado: siguiente modelo
+      }
+    }
+  }
+  throw last || new AiErr("Sin modelos disponibles.", 503);
 }
 function errMsg(e) {
   if (e.message === "NOKEY") return "Todavía no tengo clave de Gemini. El administrador puede añadirla en Ajustes → PATO.";
   if (e.status === 429) return "He alcanzado el límite gratuito de Gemini. Prueba de nuevo en un minuto.";
+  if (e.status === 503 || e.status === 500 || e.status === 502 || e.status === 504 || /high demand|overloaded/i.test(e.message)) return "Gemini está saturado ahora mismo (el plan gratuito se llena a ratos y suele pasar solo). Prueba de nuevo en un minuto.";
   if (e.status === 400 && /api key/i.test(e.message)) return "La clave de Gemini no es válida. Revísala en Ajustes → PATO.";
   if (e.status === 403) return "Gemini ha rechazado la clave (permisos o restricciones). Revísala en Ajustes → PATO.";
   return "No he podido consultar la IA: " + e.message;
@@ -701,12 +727,12 @@ function settingsHtml() {
 function bindSettings(rootEl) {
   const q = id => rootEl.querySelector("#" + id);
   const on = (id, fn, ev) => { const e = q(id); if (e) e[ev || "onclick"] = fn; };
-  on("pk-l", () => { pref.localKey = q("pk-l").value.trim(); modelCache = ""; savePref(); }, "onchange");
+  on("pk-l", () => { pref.localKey = q("pk-l").value.trim(); resetModels(); savePref(); }, "onchange");
   on("pk-sp", () => { pref.speak = q("pk-sp").checked; savePref(); }, "onchange");
   on("pk-hf", () => setHF(q("pk-hf").checked), "onchange");
   on("pk-v", () => { pref.voice = q("pk-v").value; savePref(); }, "onchange");
-  on("pk-ss", () => { const k = q("pk-s").value.trim(); if (k.length < 20) { ctx.toast("Pega la clave de Gemini completa"); return; } modelCache = ""; ctx.saveShared({ gKey: k }); });
-  on("pk-sx", () => { if (confirm("¿Quitar la clave compartida? PATO dejará de funcionar para quien no tenga clave propia.")) { modelCache = ""; ctx.clearShared(); } });
+  on("pk-ss", () => { const k = q("pk-s").value.trim(); if (k.length < 20) { ctx.toast("Pega la clave de Gemini completa"); return; } resetModels(); ctx.saveShared({ gKey: k }); });
+  on("pk-sx", () => { if (confirm("¿Quitar la clave compartida? PATO dejará de funcionar para quien no tenga clave propia.")) { resetModels(); ctx.clearShared(); } });
   on("pk-t", async () => {
     const out = q("pk-r"); out.textContent = "Probando…"; out.style.color = "";
     try { const j = await gemini({ contents: [{ role: "user", parts: [{ text: "Responde solo con la palabra: listo" }] }], generationConfig: { maxOutputTokens: 20 } });
@@ -725,13 +751,13 @@ function init(c) {
   if (pref.hf && SR) setHF(true);
 }
 function stop() { started = false; stopRec(); cancelSpeech(); lock(false); busy = false; hist = []; const s = el("pato-sheet"); if (s) { s.classList.add("hide"); const l = el("pato-log"); if (l) l.innerHTML = ""; } setState("idle"); }
-root.Pato = { init, stop, settingsHtml, bindSettings, _t: { T, DECLS, teamMatches, pickGames, tablaPorPartidos, ask, runTool, boxHits, parseEvent, systemPrompt, setCtx: c => { ctx = c; }, setKey: k => { pref.localKey = k; modelCache = ""; }, resetHist: () => { hist = []; } } };
+root.Pato = { init, stop, settingsHtml, bindSettings, _t: { T, DECLS, teamMatches, pickGames, tablaPorPartidos, ask, runTool, boxHits, parseEvent, systemPrompt, setCtx: c => { ctx = c; }, setKey: k => { pref.localKey = k; resetModels(); }, resetHist: () => { hist = []; } } };
 })(typeof window !== "undefined" ? window : globalThis);
 </script>
 <script>
 "use strict";
 window.App = (() => {
-const VERSION = "2.1.0";
+const VERSION = "2.1.1";
 const DEF_TEAMS = ["APOSTOLADO - BLANCO", "BALONCESTO LA FLECHA - A", "TIERNO GALVAN", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - B", "SAN JOSE - IGNACIO", "CB VILLA DE LAGUNA - BLANCO", "LOURDES - BUJEDO", "CD MARISTAS CCV - BLANCO", "LA ENSEÑANZA - B", "CONDESA EYLO - OCIO-SPORT", "EL PILAR", "IVECO CBC-ELALO - 2012", "CD RENEDO 2018", "LA SALLE", "CD MARISTAS CCV - AZUL", "SAN AGUSTIN", "BASKET LA CISTERNIGA"];
 const DEF_MATCHES = [[1, "2026-11-07", "APOSTOLADO - BLANCO", "BALONCESTO LA FLECHA - A"], [1, "2026-11-07", "TIERNO GALVAN", "AYTO. SANTOVENIA"], [1, "2026-11-07", "BALONCESTO LA FLECHA - B", "SAN JOSE - IGNACIO"], [1, "2026-11-07", "CB VILLA DE LAGUNA - BLANCO", "LOURDES - BUJEDO"], [1, "2026-11-07", "CD MARISTAS CCV - BLANCO", "LA ENSEÑANZA - B"], [1, "2026-11-07", "CONDESA EYLO - OCIO-SPORT", "EL PILAR"], [1, "2026-11-07", "IVECO CBC-ELALO - 2012", "CD RENEDO 2018"], [1, "2026-11-07", "LA SALLE", "CD MARISTAS CCV - AZUL"], [1, "2026-11-07", "SAN AGUSTIN", "BASKET LA CISTERNIGA"], [2, "2026-11-14", "SAN JOSE - IGNACIO", "CB VILLA DE LAGUNA - BLANCO"], [2, "2026-11-14", "LOURDES - BUJEDO", "CD MARISTAS CCV - BLANCO"], [2, "2026-11-14", "LA ENSEÑANZA - B", "CONDESA EYLO - OCIO-SPORT"], [2, "2026-11-14", "EL PILAR", "IVECO CBC-ELALO - 2012"], [2, "2026-11-14", "CD RENEDO 2018", "LA SALLE"], [2, "2026-11-14", "CD MARISTAS CCV - AZUL", "SAN AGUSTIN"], [2, "2026-11-14", "BASKET LA CISTERNIGA", "APOSTOLADO - BLANCO"], [2, "2026-11-14", "BALONCESTO LA FLECHA - A", "TIERNO GALVAN"], [2, "2026-11-14", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - B"], [3, "2026-11-21", "TIERNO GALVAN", "BALONCESTO LA FLECHA - B"], [3, "2026-11-21", "CB VILLA DE LAGUNA - BLANCO", "AYTO. SANTOVENIA"], [3, "2026-11-21", "CD MARISTAS CCV - BLANCO", "SAN JOSE - IGNACIO"], [3, "2026-11-21", "CONDESA EYLO - OCIO-SPORT", "LOURDES - BUJEDO"], [3, "2026-11-21", "IVECO CBC-ELALO - 2012", "LA ENSEÑANZA - B"], [3, "2026-11-21", "LA SALLE", "EL PILAR"], [3, "2026-11-21", "SAN AGUSTIN", "CD RENEDO 2018"], [3, "2026-11-21", "APOSTOLADO - BLANCO", "CD MARISTAS CCV - AZUL"], [3, "2026-11-21", "BALONCESTO LA FLECHA - A", "BASKET LA CISTERNIGA"], [4, "2026-12-12", "LOURDES - BUJEDO", "IVECO CBC-ELALO - 2012"], [4, "2026-12-12", "LA ENSEÑANZA - B", "LA SALLE"], [4, "2026-12-12", "EL PILAR", "SAN AGUSTIN"], [4, "2026-12-12", "CD RENEDO 2018", "APOSTOLADO - BLANCO"], [4, "2026-12-12", "CD MARISTAS CCV - AZUL", "BALONCESTO LA FLECHA - A"], [4, "2026-12-12", "BASKET LA CISTERNIGA", "TIERNO GALVAN"], [4, "2026-12-12", "BALONCESTO LA FLECHA - B", "CB VILLA DE LAGUNA - BLANCO"], [4, "2026-12-12", "AYTO. SANTOVENIA", "CD MARISTAS CCV - BLANCO"], [4, "2026-12-12", "SAN JOSE - IGNACIO", "CONDESA EYLO - OCIO-SPORT"], [5, "2026-12-19", "TIERNO GALVAN", "CB VILLA DE LAGUNA - BLANCO"], [5, "2026-12-19", "CD MARISTAS CCV - BLANCO", "BALONCESTO LA FLECHA - B"], [5, "2026-12-19", "CONDESA EYLO - OCIO-SPORT", "AYTO. SANTOVENIA"], [5, "2026-12-19", "IVECO CBC-ELALO - 2012", "SAN JOSE - IGNACIO"], [5, "2026-12-19", "LA SALLE", "LOURDES - BUJEDO"], [5, "2026-12-19", "SAN AGUSTIN", "LA ENSEÑANZA - B"], [5, "2026-12-19", "APOSTOLADO - BLANCO", "EL PILAR"], [5, "2026-12-19", "BALONCESTO LA FLECHA - A", "CD RENEDO 2018"], [5, "2026-12-19", "BASKET LA CISTERNIGA", "CD MARISTAS CCV - AZUL"], [6, "2027-01-16", "LA ENSEÑANZA - B", "APOSTOLADO - BLANCO"], [6, "2027-01-16", "EL PILAR", "BALONCESTO LA FLECHA - A"], [6, "2027-01-16", "CD RENEDO 2018", "BASKET LA CISTERNIGA"], [6, "2027-01-16", "CD MARISTAS CCV - AZUL", "TIERNO GALVAN"], [6, "2027-01-16", "CB VILLA DE LAGUNA - BLANCO", "CD MARISTAS CCV - BLANCO"], [6, "2027-01-16", "BALONCESTO LA FLECHA - B", "CONDESA EYLO - OCIO-SPORT"], [6, "2027-01-16", "AYTO. SANTOVENIA", "IVECO CBC-ELALO - 2012"], [6, "2027-01-16", "SAN JOSE - IGNACIO", "LA SALLE"], [6, "2027-01-16", "LOURDES - BUJEDO", "SAN AGUSTIN"], [7, "2027-01-23", "TIERNO GALVAN", "CD MARISTAS CCV - BLANCO"], [7, "2027-01-23", "CONDESA EYLO - OCIO-SPORT", "CB VILLA DE LAGUNA - BLANCO"], [7, "2027-01-23", "IVECO CBC-ELALO - 2012", "BALONCESTO LA FLECHA - B"], [7, "2027-01-23", "LA SALLE", "AYTO. SANTOVENIA"], [7, "2027-01-23", "SAN AGUSTIN", "SAN JOSE - IGNACIO"], [7, "2027-01-23", "APOSTOLADO - BLANCO", "LOURDES - BUJEDO"], [7, "2027-01-23", "BALONCESTO LA FLECHA - A", "LA ENSEÑANZA - B"], [7, "2027-01-23", "BASKET LA CISTERNIGA", "EL PILAR"], [7, "2027-01-23", "CD MARISTAS CCV - AZUL", "CD RENEDO 2018"], [8, "2027-01-30", "EL PILAR", "CD MARISTAS CCV - AZUL"], [8, "2027-01-30", "CD RENEDO 2018", "TIERNO GALVAN"], [8, "2027-01-30", "CD MARISTAS CCV - BLANCO", "CONDESA EYLO - OCIO-SPORT"], [8, "2027-01-30", "CB VILLA DE LAGUNA - BLANCO", "IVECO CBC-ELALO - 2012"], [8, "2027-01-30", "BALONCESTO LA FLECHA - B", "LA SALLE"], [8, "2027-01-30", "AYTO. SANTOVENIA", "SAN AGUSTIN"], [8, "2027-01-30", "SAN JOSE - IGNACIO", "APOSTOLADO - BLANCO"], [8, "2027-01-30", "LOURDES - BUJEDO", "BALONCESTO LA FLECHA - A"], [8, "2027-01-30", "LA ENSEÑANZA - B", "BASKET LA CISTERNIGA"], [9, "2027-02-13", "TIERNO GALVAN", "CONDESA EYLO - OCIO-SPORT"], [9, "2027-02-13", "IVECO CBC-ELALO - 2012", "CD MARISTAS CCV - BLANCO"], [9, "2027-02-13", "LA SALLE", "CB VILLA DE LAGUNA - BLANCO"], [9, "2027-02-13", "SAN AGUSTIN", "BALONCESTO LA FLECHA - B"], [9, "2027-02-13", "APOSTOLADO - BLANCO", "AYTO. SANTOVENIA"], [9, "2027-02-13", "BALONCESTO LA FLECHA - A", "SAN JOSE - IGNACIO"], [9, "2027-02-13", "BASKET LA CISTERNIGA", "LOURDES - BUJEDO"], [9, "2027-02-13", "CD MARISTAS CCV - AZUL", "LA ENSEÑANZA - B"], [9, "2027-02-13", "CD RENEDO 2018", "EL PILAR"], [10, "2027-02-20", "CONDESA EYLO - OCIO-SPORT", "IVECO CBC-ELALO - 2012"], [10, "2027-02-20", "CD MARISTAS CCV - BLANCO", "LA SALLE"], [10, "2027-02-20", "CB VILLA DE LAGUNA - BLANCO", "SAN AGUSTIN"], [10, "2027-02-20", "BALONCESTO LA FLECHA - B", "APOSTOLADO - BLANCO"], [10, "2027-02-20", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - A"], [10, "2027-02-20", "SAN JOSE - IGNACIO", "BASKET LA CISTERNIGA"], [10, "2027-02-20", "LOURDES - BUJEDO", "CD MARISTAS CCV - AZUL"], [10, "2027-02-20", "LA ENSEÑANZA - B", "CD RENEDO 2018"], [10, "2027-02-20", "EL PILAR", "TIERNO GALVAN"], [11, "2027-02-27", "SAN AGUSTIN", "CD MARISTAS CCV - BLANCO"], [11, "2027-02-27", "APOSTOLADO - BLANCO", "CB VILLA DE LAGUNA - BLANCO"], [11, "2027-02-27", "BALONCESTO LA FLECHA - A", "BALONCESTO LA FLECHA - B"], [11, "2027-02-27", "BASKET LA CISTERNIGA", "AYTO. SANTOVENIA"], [11, "2027-02-27", "CD MARISTAS CCV - AZUL", "SAN JOSE - IGNACIO"], [11, "2027-02-27", "CD RENEDO 2018", "LOURDES - BUJEDO"], [11, "2027-02-27", "EL PILAR", "LA ENSEÑANZA - B"], [11, "2027-02-27", "TIERNO GALVAN", "IVECO CBC-ELALO - 2012"], [11, "2027-02-27", "LA SALLE", "CONDESA EYLO - OCIO-SPORT"], [12, "2027-03-06", "IVECO CBC-ELALO - 2012", "LA SALLE"], [12, "2027-03-06", "CONDESA EYLO - OCIO-SPORT", "SAN AGUSTIN"], [12, "2027-03-06", "CD MARISTAS CCV - BLANCO", "APOSTOLADO - BLANCO"], [12, "2027-03-06", "CB VILLA DE LAGUNA - BLANCO", "BALONCESTO LA FLECHA - A"], [12, "2027-03-06", "BALONCESTO LA FLECHA - B", "BASKET LA CISTERNIGA"], [12, "2027-03-06", "AYTO. SANTOVENIA", "CD MARISTAS CCV - AZUL"], [12, "2027-03-06", "SAN JOSE - IGNACIO", "CD RENEDO 2018"], [12, "2027-03-06", "LOURDES - BUJEDO", "EL PILAR"], [12, "2027-03-06", "LA ENSEÑANZA - B", "TIERNO GALVAN"], [13, "2027-03-13", "BASKET LA CISTERNIGA", "CB VILLA DE LAGUNA - BLANCO"], [13, "2027-03-13", "CD MARISTAS CCV - AZUL", "BALONCESTO LA FLECHA - B"], [13, "2027-03-13", "CD RENEDO 2018", "AYTO. SANTOVENIA"], [13, "2027-03-13", "EL PILAR", "SAN JOSE - IGNACIO"], [13, "2027-03-13", "LA ENSEÑANZA - B", "LOURDES - BUJEDO"], [13, "2027-03-13", "TIERNO GALVAN", "LA SALLE"], [13, "2027-03-13", "SAN AGUSTIN", "IVECO CBC-ELALO - 2012"], [13, "2027-03-13", "APOSTOLADO - BLANCO", "CONDESA EYLO - OCIO-SPORT"], [13, "2027-03-13", "BALONCESTO LA FLECHA - A", "CD MARISTAS CCV - BLANCO"], [14, "2027-04-03", "LA SALLE", "SAN AGUSTIN"], [14, "2027-04-03", "IVECO CBC-ELALO - 2012", "APOSTOLADO - BLANCO"], [14, "2027-04-03", "CONDESA EYLO - OCIO-SPORT", "BALONCESTO LA FLECHA - A"], [14, "2027-04-03", "CD MARISTAS CCV - BLANCO", "BASKET LA CISTERNIGA"], [14, "2027-04-03", "CB VILLA DE LAGUNA - BLANCO", "CD MARISTAS CCV - AZUL"], [14, "2027-04-03", "BALONCESTO LA FLECHA - B", "CD RENEDO 2018"], [14, "2027-04-03", "AYTO. SANTOVENIA", "EL PILAR"], [14, "2027-04-03", "SAN JOSE - IGNACIO", "LA ENSEÑANZA - B"], [14, "2027-04-03", "LOURDES - BUJEDO", "TIERNO GALVAN"], [15, "2027-04-10", "EL PILAR", "BALONCESTO LA FLECHA - B"], [15, "2027-04-10", "LA ENSEÑANZA - B", "AYTO. SANTOVENIA"], [15, "2027-04-10", "LOURDES - BUJEDO", "SAN JOSE - IGNACIO"], [15, "2027-04-10", "TIERNO GALVAN", "SAN AGUSTIN"], [15, "2027-04-10", "APOSTOLADO - BLANCO", "LA SALLE"], [15, "2027-04-10", "BALONCESTO LA FLECHA - A", "IVECO CBC-ELALO - 2012"], [15, "2027-04-10", "BASKET LA CISTERNIGA", "CONDESA EYLO - OCIO-SPORT"], [15, "2027-04-10", "CD MARISTAS CCV - AZUL", "CD MARISTAS CCV - BLANCO"], [15, "2027-04-10", "CD RENEDO 2018", "CB VILLA DE LAGUNA - BLANCO"], [16, "2027-04-17", "IVECO CBC-ELALO - 2012", "BASKET LA CISTERNIGA"], [16, "2027-04-17", "CONDESA EYLO - OCIO-SPORT", "CD MARISTAS CCV - AZUL"], [16, "2027-04-17", "CD MARISTAS CCV - BLANCO", "CD RENEDO 2018"], [16, "2027-04-17", "CB VILLA DE LAGUNA - BLANCO", "EL PILAR"], [16, "2027-04-17", "BALONCESTO LA FLECHA - B", "LA ENSEÑANZA - B"], [16, "2027-04-17", "AYTO. SANTOVENIA", "LOURDES - BUJEDO"], [16, "2027-04-17", "TIERNO GALVAN", "SAN JOSE - IGNACIO"], [16, "2027-04-17", "SAN AGUSTIN", "APOSTOLADO - BLANCO"], [16, "2027-04-17", "LA SALLE", "BALONCESTO LA FLECHA - A"], [17, "2027-05-08", "APOSTOLADO - BLANCO", "TIERNO GALVAN"], [17, "2027-05-08", "BALONCESTO LA FLECHA - A", "SAN AGUSTIN"], [17, "2027-05-08", "BASKET LA CISTERNIGA", "LA SALLE"], [17, "2027-05-08", "CD MARISTAS CCV - AZUL", "IVECO CBC-ELALO - 2012"], [17, "2027-05-08", "CD RENEDO 2018", "CONDESA EYLO - OCIO-SPORT"], [17, "2027-05-08", "EL PILAR", "CD MARISTAS CCV - BLANCO"], [17, "2027-05-08", "LA ENSEÑANZA - B", "CB VILLA DE LAGUNA - BLANCO"], [17, "2027-05-08", "LOURDES - BUJEDO", "BALONCESTO LA FLECHA - B"], [17, "2027-05-08", "SAN JOSE - IGNACIO", "AYTO. SANTOVENIA"]]; // [jornada, "AAAA-MM-DD", local, visitante]
 const SK = [["p","Puntos","PTS"],["r","Rebotes","REB"],["t","Tapones","TAP"],["f","Faltas","FAL"]];
