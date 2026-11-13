@@ -3,7 +3,7 @@
    conexión o tarda más de 3,5 s, la copia guardada: la app funciona sin conexión.
    Solo hace falta cambiar CACHE si se modifica este archivo o la lista ASSETS. */
 const PREFIX = "cadeteB-";
-const CACHE = PREFIX + "v4";
+const CACHE = PREFIX + "v6";
 const ASSETS = [
   "./",
   "./index.html",
