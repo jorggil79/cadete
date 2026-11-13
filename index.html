@@ -398,7 +398,7 @@ T.acb_clasificacion = async () => {
 T.buscar_web = async a => {
   if (!a.consulta) return { error: "Falta la consulta." };
   const j = await gemini({ systemInstruction: { parts: [{ text: "Solo respondes sobre baloncesto. Si la consulta trata de cualquier otro tema, responde únicamente: FUERA_DE_TEMA. Si es de baloncesto, responde en español con datos concretos y actuales, en 1-3 frases; si no encuentras el dato, dilo." }] },
-    contents: [{ role: "user", parts: [{ text: a.consulta }] }], tools: [{ google_search: {} }], generationConfig: { temperature: .2, maxOutputTokens: 600 } });
+    contents: [{ role: "user", parts: [{ text: a.consulta }] }], tools: [{ google_search: {} }], generationConfig: { temperature: .2 } });
   const c = j.candidates && j.candidates[0];
   const text = c && c.content && c.content.parts ? c.content.parts.map(p => p.text || "").join("").trim() : "";
   const fuentes = ((c && c.groundingMetadata && c.groundingMetadata.groundingChunks) || []).map(g => g.web).filter(w => w && w.uri).slice(0, 4).map(w => ({ titulo: w.title || "fuente", url: w.uri }));
@@ -435,8 +435,11 @@ async function runTool(name, args) {
 /* ====================== Gemini ====================== */
 class AiErr extends Error { constructor(m, status) { super(m); this.status = status; } }
 async function gfetch(url, opts) {
-  let r; try { r = await fetch(url, opts); } catch (e) { throw new AiErr("Sin conexión con Gemini.", 0); }
+  const ctl = typeof AbortController !== "undefined" ? new AbortController() : null, to = ctl ? setTimeout(() => ctl.abort(), 40000) : null;   // sin respuesta en 40 s: se corta (y se prueba otro modelo)
+  let r; try { r = await fetch(url, ctl ? { ...opts, signal: ctl.signal } : opts); }
+  catch (e) { if (to) clearTimeout(to); const ab = e && e.name === "AbortError"; throw new AiErr(ab ? "Gemini no responde (tiempo agotado)." : "Sin conexión con Gemini.", ab ? 504 : 0); }
   let j = null; try { j = await r.json(); } catch (e) {}
+  if (to) clearTimeout(to);
   if (!r.ok) throw new AiErr(String((j && j.error && (j.error.message || j.error)) || ("Error " + r.status)).slice(0, 200), r.status);
   return j;
 }
@@ -507,14 +510,18 @@ let hist = [];
 async function ask(text, onStep) {
   const contents = [...hist.slice(-12), { role: "user", parts: [{ text }] }];
   const usadas = new Set(), fuentesWeb = [];
-  for (let step = 0; step < 6; step++) {
+  let vacios = 0;
+  for (let step = 0; step < 7; step++) {
     const j = await gemini({ systemInstruction: { parts: [{ text: systemPrompt() }] }, contents,
-      tools: [{ functionDeclarations: DECLS }], generationConfig: { temperature: .3, maxOutputTokens: 900 } });
+      tools: [{ functionDeclarations: DECLS }], generationConfig: { temperature: .3 } });   // sin tope de tokens: los modelos que «piensan» gastan parte del tope y devolverían la respuesta vacía
     const cand = j.candidates && j.candidates[0], parts = (cand && cand.content && cand.content.parts) || [];
     const calls = parts.filter(p => p.functionCall);
     if (!calls.length) {
-      const out = parts.map(p => p.text || "").join("").replace(/\*\*|__|^#+\s*/gm, "").trim();
-      if (!out) throw new AiErr("La IA no ha devuelto respuesta" + (j.promptFeedback && j.promptFeedback.blockReason ? " (bloqueada)" : "") + ".", 0);
+      const out = parts.filter(p => !p.thought).map(p => p.text || "").join("").replace(/\*\*|__|^#+\s*/gm, "").trim();
+      if (!out) {
+        if (++vacios <= 1) continue;   // a veces Gemini devuelve una respuesta vacía: se repite una vez
+        throw new AiErr("La IA no ha devuelto respuesta" + (j.promptFeedback && j.promptFeedback.blockReason ? " (bloqueada)" : cand && cand.finishReason ? " (motivo: " + cand.finishReason + ")" : "") + ". Inténtalo de nuevo.", 0);
+      }
       hist.push({ role: "user", parts: [{ text }] }, { role: "model", parts: [{ text: out }] }); hist = hist.slice(-16);
       return { text: out, usadas: [...usadas], fuentes: fuentesWeb };
     }
@@ -552,9 +559,11 @@ function speak(text) {
     const list = chunks(text.replace(/https?:\/\/\S+/g, "")); let i = 0;
     const next = () => {
       if (tok !== speakTok || i >= list.length) { res(); return; }
-      const u = new root.SpeechSynthesisUtterance(list[i++]); const v = pickVoice();
+      const txt = list[i++], u = new root.SpeechSynthesisUtterance(txt); const v = pickVoice();
       if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "es-ES";
-      u.rate = +pref.rate || 1; u.onend = next; u.onerror = () => res(); synth.speak(u);
+      // En algunos móviles el aviso de «fin» no llega nunca: se sigue igualmente pasado un tiempo razonable
+      let hecho = false; const fin = (cont) => { if (hecho) return; hecho = true; clearTimeout(to); cont ? next() : res(); }, to = setTimeout(() => fin(true), 4000 + txt.length * 110);
+      u.rate = +pref.rate || 1; u.onend = () => fin(true); u.onerror = () => fin(false); synth.speak(u);
     };
     next();
   });
@@ -567,31 +576,37 @@ function setState(s) {
   const mic = el("pato-mic"); if (mic) mic.classList.toggle("on", s === "listening");
 }
 function stopRec() { wantRec = false; const r = rec; rec = null; try { r && r.abort(); } catch (e) {} }
+const ANDROID = /android/i.test((root.navigator && root.navigator.userAgent) || "");
+// Aviso visible: dentro del chat si está abierto (en el móvil el aviso emergente suele pasar desapercibido) y, si no, como aviso emergente
+function hint(t) { const s = el("pato-sheet"); if (s && !s.classList.contains("hide")) bubble("a", t); else { try { ctx.toast(t); } catch (e) {} } }
 function startRec(mode) {
-  if (!SR) { ctx.toast("Este navegador no admite reconocimiento de voz. Usa Chrome o Edge, o escribe."); return false; }
+  if (!SR) { hint("Este navegador no admite reconocimiento de voz. Usa Chrome o Edge, o escribe tu pregunta."); return false; }
   stopRec(); recMode = mode; wantRec = true;
-  const me = new SR(); rec = me;
-  me.lang = "es-ES"; me.maxAlternatives = 1; me.continuous = mode === "wake"; me.interimResults = true;
+  const me = new SR(); rec = me; let oido = false, error = "";
+  // Android no admite el modo continuo: allí cada frase es una escucha nueva (se reinicia sola en el manos libres)
+  me.lang = "es-ES"; me.maxAlternatives = 1; me.continuous = mode === "wake" && !ANDROID; me.interimResults = true;
   me.onstart = () => { if (rec === me && !busy) setState("listening"); };
   me.onresult = e => {
-    if (rec !== me) return; fails = 0; let interim = "";
+    if (rec !== me) return; fails = 0; oido = true; let interim = "";
     for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) onFinal(t.trim()); else interim += t; }
     const l = el("pato-live"); if (l) l.textContent = interim;
   };
   me.onerror = e => {
-    if (rec !== me) return;
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") { wantRec = false; setHF(false); ctx.toast("PATO necesita permiso de micrófono (ajustes del navegador)."); }
-    else if (e.error === "network") { fails++; if (fails === 1) ctx.toast("El reconocimiento de voz del navegador no puede conectar."); }
-    else if (e.error === "audio-capture") { wantRec = false; ctx.toast("No se detecta ningún micrófono."); }
+    if (rec !== me) return; error = e.error || "error";
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") { wantRec = false; if (mode === "wake") setHF(false); hint("PATO no tiene permiso para usar el micrófono. Actívalo en los permisos del navegador o de la app (Micrófono) y vuelve a pulsar 🎙."); }
+    else if (e.error === "network") { fails++; if (fails === 1 || mode === "cmd") hint("El reconocimiento de voz necesita conexión a Internet y no consigue conectar."); }
+    else if (e.error === "audio-capture") { wantRec = false; hint("No se detecta ningún micrófono."); }
+    else if (e.error === "language-not-supported") { wantRec = false; hint("Este navegador no reconoce voz en español."); }
   };
   me.onend = () => {
     if (rec !== me) return;
     if (!busy && state === "listening") setState("idle");
     const l = el("pato-live"); if (l) l.textContent = "";
+    if (mode === "cmd" && !oido && !busy && (!error || error === "no-speech")) hint("No te he oído. Pulsa 🎙 y habla cerca del móvil, o escribe tu pregunta.");
     if (wantRec && recMode === "wake" && !busy && fails < 6) setTimeout(() => { if (wantRec && !busy && rec === me) startRec("wake"); }, 350 + fails * 400);
     else if (recMode === "cmd") wantRec = false;
   };
-  try { me.start(); return true; } catch (e) { return false; }
+  try { me.start(); return true; } catch (e) { hint("No he podido activar el micrófono: " + (e && e.message || e)); return false; }
 }
 function onFinal(t) {
   if (!t) return;
@@ -599,7 +614,7 @@ function onFinal(t) {
   const m = t.match(WAKE_RE);
   if (m) {
     const cmd = t.slice(m.index + m[0].length).replace(/^[\s,.:;¡!¿?-]+/, "");
-    if (cmd.length > 2) handle(cmd); else { armedUntil = Date.now() + 8000; chime(); openSheet(); const l = el("pato-live"); if (l) l.textContent = "Te escucho…"; }
+    if (cmd.length > 2) handle(cmd); else { armedUntil = Date.now() + 8000; if (!ANDROID) chime(); openSheet(); const l = el("pato-live"); if (l) l.textContent = "Te escucho…"; }
   } else if (Date.now() < armedUntil) { armedUntil = 0; handle(t); }
 }
 function chime() { try { const a = new (root.AudioContext || root.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.type = "sine"; o.frequency.value = 880; g.gain.value = .05; o.connect(g); g.connect(a.destination); o.start(); g.gain.exponentialRampToValueAtTime(.0001, a.currentTime + .18); o.stop(a.currentTime + .2); } catch (e) {} }
@@ -690,7 +705,7 @@ function micTap() {
   if (state === "speaking") { cancelSpeech(); setState("idle"); if (pref.hf) startRec("wake"); return; }
   if (busy) return;
   if (state === "listening" && recMode === "cmd") { stopRec(); setState("idle"); return; }
-  cancelSpeech(); armedUntil = 0; chime(); startRec("cmd");
+  cancelSpeech(); armedUntil = 0; if (!ANDROID) chime(); startRec("cmd");   // en Android el propio sistema ya avisa al empezar a escuchar
 }
 function build() {
   const d = root.document;
@@ -699,12 +714,16 @@ function build() {
   const sh = d.createElement("div"); sh.id = "pato-sheet"; sh.className = "hide"; sh.setAttribute("role", "dialog"); sh.setAttribute("aria-label", "PATO");
   sh.innerHTML = `<div class="ph"><b>${DUCK} PATO</b><span id="pato-st"></span><button class="chip" id="pato-hf">Manos libres: no</button><button id="pato-x" aria-label="Cerrar">×</button></div>
     <div id="pato-log"></div><div id="pato-live"></div>
-    <div class="pin"><button id="pato-mic" aria-label="Hablar">🎙</button><input id="pato-in" placeholder="Pregunta a PATO…" autocomplete="off" enterkeyhint="send"><button class="btn" id="pato-go">Enviar</button></div>`;
+    <form class="pin" id="pato-form" autocomplete="off"><button type="button" id="pato-mic" aria-label="Hablar">🎙</button><input id="pato-in" placeholder="Pregunta a PATO…" autocomplete="off" autocapitalize="sentences" enterkeyhint="send"><button type="submit" class="btn" id="pato-go">Enviar</button></form>`;
   d.body.appendChild(sh);
   fab.onclick = () => { const s = el("pato-sheet"); s.classList.contains("hide") ? openSheet() : closeSheet(); };
   el("pato-x").onclick = closeSheet; el("pato-mic").onclick = micTap; el("pato-hf").onclick = () => setHF(!pref.hf);
-  const send = () => { const i = el("pato-in"), t = i.value.trim(); if (!t) return; i.value = ""; handle(t); };
-  el("pato-go").onclick = send; el("pato-in").onkeydown = e => { if (e.key === "Enter") send(); };
+  // Formulario: así funciona la tecla «Enviar» del teclado del móvil. Se cierra el teclado al enviar para que se vea la respuesta.
+  el("pato-form").onsubmit = e => { e.preventDefault(); const i = el("pato-in"), t = i.value.trim(); if (!t) return; i.value = ""; i.blur(); handle(t); };
+  // Con el teclado del móvil abierto, el chat se sube y se ajusta a la parte visible de la pantalla
+  const vv = root.visualViewport;
+  if (vv) { const fit = () => { const kb = Math.max(0, Math.round(root.innerHeight - vv.height - vv.offsetTop)); sh.style.bottom = kb + "px"; sh.style.height = Math.min(Math.round(vv.height * (kb > 80 ? .94 : .78)), 640) + "px"; };
+    vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); root.addEventListener("orientationchange", () => setTimeout(fit, 300)); fit(); }
   d.addEventListener("visibilitychange", () => { if (d.visibilityState === "visible" && pref.hf) { lock(true); if (!wantRec && !busy) startRec("wake"); } });
 }
 
@@ -721,7 +740,7 @@ function settingsHtml() {
     <label class="f">${admin ? "Mi clave propia (opcional, solo este dispositivo)" : "Mi clave de Gemini (opcional, solo este dispositivo)"}<input class="txt" id="pk-l" type="password" value="${esc(pref.localKey)}" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
     <div class="row wrap" style="margin:6px 0"><button class="btn sec sm" id="pk-t">Probar PATO</button><span class="note" id="pk-r"></span></div>
     <label class="chk"><input type="checkbox" id="pk-sp" ${pref.speak ? "checked" : ""}><span>Que PATO responda hablando</span></label>
-    <label class="chk"><input type="checkbox" id="pk-hf" ${pref.hf ? "checked" : ""}><span>Manos libres: escuchar «Pato, …» (con la app abierta)</span></label>
+    <label class="chk"><input type="checkbox" id="pk-hf" ${pref.hf ? "checked" : ""}><span>Manos libres: escuchar «Pato, …» (con la app abierta; en Android es menos fiable: usa mejor el botón 🎙)</span></label>
     <label class="f">Voz<select class="big" id="pk-v"><option value="">Automática (español)</option>${vs.map(v => `<option value="${esc(v.name)}" ${v.name === pref.voice ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></label></div>`;
 }
 function bindSettings(rootEl) {
@@ -735,8 +754,10 @@ function bindSettings(rootEl) {
   on("pk-sx", () => { if (confirm("¿Quitar la clave compartida? PATO dejará de funcionar para quien no tenga clave propia.")) { resetModels(); ctx.clearShared(); } });
   on("pk-t", async () => {
     const out = q("pk-r"); out.textContent = "Probando…"; out.style.color = "";
-    try { const j = await gemini({ contents: [{ role: "user", parts: [{ text: "Responde solo con la palabra: listo" }] }], generationConfig: { maxOutputTokens: 20 } });
-      out.textContent = "✓ Funciona (" + modelCache + ")"; out.style.color = "var(--ok)"; }
+    try { const j = await gemini({ contents: [{ role: "user", parts: [{ text: "Responde solo con la palabra: listo" }] }], generationConfig: { temperature: 0 } });
+      const c = j.candidates && j.candidates[0], t = c && c.content && c.content.parts ? c.content.parts.filter(p => !p.thought).map(p => p.text || "").join("").trim() : "";
+      if (t) { out.textContent = "✓ Funciona (" + modelCache + "): «" + t.slice(0, 40) + "»"; out.style.color = "var(--ok)"; }
+      else { out.textContent = "✗ Gemini (" + modelCache + ") responde pero sin texto" + (c && c.finishReason ? " (motivo: " + c.finishReason + ")" : "") + ". Vuelve a probar."; out.style.color = "var(--bad)"; } }
     catch (e) { out.textContent = "✗ " + errMsg(e); out.style.color = "var(--bad)"; }
   });
 }
@@ -757,7 +778,7 @@ root.Pato = { init, stop, settingsHtml, bindSettings, _t: { T, DECLS, teamMatche
 <script>
 "use strict";
 window.App = (() => {
-const VERSION = "2.1.1";
+const VERSION = "2.1.3";
 const DEF_TEAMS = ["APOSTOLADO - BLANCO", "BALONCESTO LA FLECHA - A", "TIERNO GALVAN", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - B", "SAN JOSE - IGNACIO", "CB VILLA DE LAGUNA - BLANCO", "LOURDES - BUJEDO", "CD MARISTAS CCV - BLANCO", "LA ENSEÑANZA - B", "CONDESA EYLO - OCIO-SPORT", "EL PILAR", "IVECO CBC-ELALO - 2012", "CD RENEDO 2018", "LA SALLE", "CD MARISTAS CCV - AZUL", "SAN AGUSTIN", "BASKET LA CISTERNIGA"];
 const DEF_MATCHES = [[1, "2026-11-07", "APOSTOLADO - BLANCO", "BALONCESTO LA FLECHA - A"], [1, "2026-11-07", "TIERNO GALVAN", "AYTO. SANTOVENIA"], [1, "2026-11-07", "BALONCESTO LA FLECHA - B", "SAN JOSE - IGNACIO"], [1, "2026-11-07", "CB VILLA DE LAGUNA - BLANCO", "LOURDES - BUJEDO"], [1, "2026-11-07", "CD MARISTAS CCV - BLANCO", "LA ENSEÑANZA - B"], [1, "2026-11-07", "CONDESA EYLO - OCIO-SPORT", "EL PILAR"], [1, "2026-11-07", "IVECO CBC-ELALO - 2012", "CD RENEDO 2018"], [1, "2026-11-07", "LA SALLE", "CD MARISTAS CCV - AZUL"], [1, "2026-11-07", "SAN AGUSTIN", "BASKET LA CISTERNIGA"], [2, "2026-11-14", "SAN JOSE - IGNACIO", "CB VILLA DE LAGUNA - BLANCO"], [2, "2026-11-14", "LOURDES - BUJEDO", "CD MARISTAS CCV - BLANCO"], [2, "2026-11-14", "LA ENSEÑANZA - B", "CONDESA EYLO - OCIO-SPORT"], [2, "2026-11-14", "EL PILAR", "IVECO CBC-ELALO - 2012"], [2, "2026-11-14", "CD RENEDO 2018", "LA SALLE"], [2, "2026-11-14", "CD MARISTAS CCV - AZUL", "SAN AGUSTIN"], [2, "2026-11-14", "BASKET LA CISTERNIGA", "APOSTOLADO - BLANCO"], [2, "2026-11-14", "BALONCESTO LA FLECHA - A", "TIERNO GALVAN"], [2, "2026-11-14", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - B"], [3, "2026-11-21", "TIERNO GALVAN", "BALONCESTO LA FLECHA - B"], [3, "2026-11-21", "CB VILLA DE LAGUNA - BLANCO", "AYTO. SANTOVENIA"], [3, "2026-11-21", "CD MARISTAS CCV - BLANCO", "SAN JOSE - IGNACIO"], [3, "2026-11-21", "CONDESA EYLO - OCIO-SPORT", "LOURDES - BUJEDO"], [3, "2026-11-21", "IVECO CBC-ELALO - 2012", "LA ENSEÑANZA - B"], [3, "2026-11-21", "LA SALLE", "EL PILAR"], [3, "2026-11-21", "SAN AGUSTIN", "CD RENEDO 2018"], [3, "2026-11-21", "APOSTOLADO - BLANCO", "CD MARISTAS CCV - AZUL"], [3, "2026-11-21", "BALONCESTO LA FLECHA - A", "BASKET LA CISTERNIGA"], [4, "2026-12-12", "LOURDES - BUJEDO", "IVECO CBC-ELALO - 2012"], [4, "2026-12-12", "LA ENSEÑANZA - B", "LA SALLE"], [4, "2026-12-12", "EL PILAR", "SAN AGUSTIN"], [4, "2026-12-12", "CD RENEDO 2018", "APOSTOLADO - BLANCO"], [4, "2026-12-12", "CD MARISTAS CCV - AZUL", "BALONCESTO LA FLECHA - A"], [4, "2026-12-12", "BASKET LA CISTERNIGA", "TIERNO GALVAN"], [4, "2026-12-12", "BALONCESTO LA FLECHA - B", "CB VILLA DE LAGUNA - BLANCO"], [4, "2026-12-12", "AYTO. SANTOVENIA", "CD MARISTAS CCV - BLANCO"], [4, "2026-12-12", "SAN JOSE - IGNACIO", "CONDESA EYLO - OCIO-SPORT"], [5, "2026-12-19", "TIERNO GALVAN", "CB VILLA DE LAGUNA - BLANCO"], [5, "2026-12-19", "CD MARISTAS CCV - BLANCO", "BALONCESTO LA FLECHA - B"], [5, "2026-12-19", "CONDESA EYLO - OCIO-SPORT", "AYTO. SANTOVENIA"], [5, "2026-12-19", "IVECO CBC-ELALO - 2012", "SAN JOSE - IGNACIO"], [5, "2026-12-19", "LA SALLE", "LOURDES - BUJEDO"], [5, "2026-12-19", "SAN AGUSTIN", "LA ENSEÑANZA - B"], [5, "2026-12-19", "APOSTOLADO - BLANCO", "EL PILAR"], [5, "2026-12-19", "BALONCESTO LA FLECHA - A", "CD RENEDO 2018"], [5, "2026-12-19", "BASKET LA CISTERNIGA", "CD MARISTAS CCV - AZUL"], [6, "2027-01-16", "LA ENSEÑANZA - B", "APOSTOLADO - BLANCO"], [6, "2027-01-16", "EL PILAR", "BALONCESTO LA FLECHA - A"], [6, "2027-01-16", "CD RENEDO 2018", "BASKET LA CISTERNIGA"], [6, "2027-01-16", "CD MARISTAS CCV - AZUL", "TIERNO GALVAN"], [6, "2027-01-16", "CB VILLA DE LAGUNA - BLANCO", "CD MARISTAS CCV - BLANCO"], [6, "2027-01-16", "BALONCESTO LA FLECHA - B", "CONDESA EYLO - OCIO-SPORT"], [6, "2027-01-16", "AYTO. SANTOVENIA", "IVECO CBC-ELALO - 2012"], [6, "2027-01-16", "SAN JOSE - IGNACIO", "LA SALLE"], [6, "2027-01-16", "LOURDES - BUJEDO", "SAN AGUSTIN"], [7, "2027-01-23", "TIERNO GALVAN", "CD MARISTAS CCV - BLANCO"], [7, "2027-01-23", "CONDESA EYLO - OCIO-SPORT", "CB VILLA DE LAGUNA - BLANCO"], [7, "2027-01-23", "IVECO CBC-ELALO - 2012", "BALONCESTO LA FLECHA - B"], [7, "2027-01-23", "LA SALLE", "AYTO. SANTOVENIA"], [7, "2027-01-23", "SAN AGUSTIN", "SAN JOSE - IGNACIO"], [7, "2027-01-23", "APOSTOLADO - BLANCO", "LOURDES - BUJEDO"], [7, "2027-01-23", "BALONCESTO LA FLECHA - A", "LA ENSEÑANZA - B"], [7, "2027-01-23", "BASKET LA CISTERNIGA", "EL PILAR"], [7, "2027-01-23", "CD MARISTAS CCV - AZUL", "CD RENEDO 2018"], [8, "2027-01-30", "EL PILAR", "CD MARISTAS CCV - AZUL"], [8, "2027-01-30", "CD RENEDO 2018", "TIERNO GALVAN"], [8, "2027-01-30", "CD MARISTAS CCV - BLANCO", "CONDESA EYLO - OCIO-SPORT"], [8, "2027-01-30", "CB VILLA DE LAGUNA - BLANCO", "IVECO CBC-ELALO - 2012"], [8, "2027-01-30", "BALONCESTO LA FLECHA - B", "LA SALLE"], [8, "2027-01-30", "AYTO. SANTOVENIA", "SAN AGUSTIN"], [8, "2027-01-30", "SAN JOSE - IGNACIO", "APOSTOLADO - BLANCO"], [8, "2027-01-30", "LOURDES - BUJEDO", "BALONCESTO LA FLECHA - A"], [8, "2027-01-30", "LA ENSEÑANZA - B", "BASKET LA CISTERNIGA"], [9, "2027-02-13", "TIERNO GALVAN", "CONDESA EYLO - OCIO-SPORT"], [9, "2027-02-13", "IVECO CBC-ELALO - 2012", "CD MARISTAS CCV - BLANCO"], [9, "2027-02-13", "LA SALLE", "CB VILLA DE LAGUNA - BLANCO"], [9, "2027-02-13", "SAN AGUSTIN", "BALONCESTO LA FLECHA - B"], [9, "2027-02-13", "APOSTOLADO - BLANCO", "AYTO. SANTOVENIA"], [9, "2027-02-13", "BALONCESTO LA FLECHA - A", "SAN JOSE - IGNACIO"], [9, "2027-02-13", "BASKET LA CISTERNIGA", "LOURDES - BUJEDO"], [9, "2027-02-13", "CD MARISTAS CCV - AZUL", "LA ENSEÑANZA - B"], [9, "2027-02-13", "CD RENEDO 2018", "EL PILAR"], [10, "2027-02-20", "CONDESA EYLO - OCIO-SPORT", "IVECO CBC-ELALO - 2012"], [10, "2027-02-20", "CD MARISTAS CCV - BLANCO", "LA SALLE"], [10, "2027-02-20", "CB VILLA DE LAGUNA - BLANCO", "SAN AGUSTIN"], [10, "2027-02-20", "BALONCESTO LA FLECHA - B", "APOSTOLADO - BLANCO"], [10, "2027-02-20", "AYTO. SANTOVENIA", "BALONCESTO LA FLECHA - A"], [10, "2027-02-20", "SAN JOSE - IGNACIO", "BASKET LA CISTERNIGA"], [10, "2027-02-20", "LOURDES - BUJEDO", "CD MARISTAS CCV - AZUL"], [10, "2027-02-20", "LA ENSEÑANZA - B", "CD RENEDO 2018"], [10, "2027-02-20", "EL PILAR", "TIERNO GALVAN"], [11, "2027-02-27", "SAN AGUSTIN", "CD MARISTAS CCV - BLANCO"], [11, "2027-02-27", "APOSTOLADO - BLANCO", "CB VILLA DE LAGUNA - BLANCO"], [11, "2027-02-27", "BALONCESTO LA FLECHA - A", "BALONCESTO LA FLECHA - B"], [11, "2027-02-27", "BASKET LA CISTERNIGA", "AYTO. SANTOVENIA"], [11, "2027-02-27", "CD MARISTAS CCV - AZUL", "SAN JOSE - IGNACIO"], [11, "2027-02-27", "CD RENEDO 2018", "LOURDES - BUJEDO"], [11, "2027-02-27", "EL PILAR", "LA ENSEÑANZA - B"], [11, "2027-02-27", "TIERNO GALVAN", "IVECO CBC-ELALO - 2012"], [11, "2027-02-27", "LA SALLE", "CONDESA EYLO - OCIO-SPORT"], [12, "2027-03-06", "IVECO CBC-ELALO - 2012", "LA SALLE"], [12, "2027-03-06", "CONDESA EYLO - OCIO-SPORT", "SAN AGUSTIN"], [12, "2027-03-06", "CD MARISTAS CCV - BLANCO", "APOSTOLADO - BLANCO"], [12, "2027-03-06", "CB VILLA DE LAGUNA - BLANCO", "BALONCESTO LA FLECHA - A"], [12, "2027-03-06", "BALONCESTO LA FLECHA - B", "BASKET LA CISTERNIGA"], [12, "2027-03-06", "AYTO. SANTOVENIA", "CD MARISTAS CCV - AZUL"], [12, "2027-03-06", "SAN JOSE - IGNACIO", "CD RENEDO 2018"], [12, "2027-03-06", "LOURDES - BUJEDO", "EL PILAR"], [12, "2027-03-06", "LA ENSEÑANZA - B", "TIERNO GALVAN"], [13, "2027-03-13", "BASKET LA CISTERNIGA", "CB VILLA DE LAGUNA - BLANCO"], [13, "2027-03-13", "CD MARISTAS CCV - AZUL", "BALONCESTO LA FLECHA - B"], [13, "2027-03-13", "CD RENEDO 2018", "AYTO. SANTOVENIA"], [13, "2027-03-13", "EL PILAR", "SAN JOSE - IGNACIO"], [13, "2027-03-13", "LA ENSEÑANZA - B", "LOURDES - BUJEDO"], [13, "2027-03-13", "TIERNO GALVAN", "LA SALLE"], [13, "2027-03-13", "SAN AGUSTIN", "IVECO CBC-ELALO - 2012"], [13, "2027-03-13", "APOSTOLADO - BLANCO", "CONDESA EYLO - OCIO-SPORT"], [13, "2027-03-13", "BALONCESTO LA FLECHA - A", "CD MARISTAS CCV - BLANCO"], [14, "2027-04-03", "LA SALLE", "SAN AGUSTIN"], [14, "2027-04-03", "IVECO CBC-ELALO - 2012", "APOSTOLADO - BLANCO"], [14, "2027-04-03", "CONDESA EYLO - OCIO-SPORT", "BALONCESTO LA FLECHA - A"], [14, "2027-04-03", "CD MARISTAS CCV - BLANCO", "BASKET LA CISTERNIGA"], [14, "2027-04-03", "CB VILLA DE LAGUNA - BLANCO", "CD MARISTAS CCV - AZUL"], [14, "2027-04-03", "BALONCESTO LA FLECHA - B", "CD RENEDO 2018"], [14, "2027-04-03", "AYTO. SANTOVENIA", "EL PILAR"], [14, "2027-04-03", "SAN JOSE - IGNACIO", "LA ENSEÑANZA - B"], [14, "2027-04-03", "LOURDES - BUJEDO", "TIERNO GALVAN"], [15, "2027-04-10", "EL PILAR", "BALONCESTO LA FLECHA - B"], [15, "2027-04-10", "LA ENSEÑANZA - B", "AYTO. SANTOVENIA"], [15, "2027-04-10", "LOURDES - BUJEDO", "SAN JOSE - IGNACIO"], [15, "2027-04-10", "TIERNO GALVAN", "SAN AGUSTIN"], [15, "2027-04-10", "APOSTOLADO - BLANCO", "LA SALLE"], [15, "2027-04-10", "BALONCESTO LA FLECHA - A", "IVECO CBC-ELALO - 2012"], [15, "2027-04-10", "BASKET LA CISTERNIGA", "CONDESA EYLO - OCIO-SPORT"], [15, "2027-04-10", "CD MARISTAS CCV - AZUL", "CD MARISTAS CCV - BLANCO"], [15, "2027-04-10", "CD RENEDO 2018", "CB VILLA DE LAGUNA - BLANCO"], [16, "2027-04-17", "IVECO CBC-ELALO - 2012", "BASKET LA CISTERNIGA"], [16, "2027-04-17", "CONDESA EYLO - OCIO-SPORT", "CD MARISTAS CCV - AZUL"], [16, "2027-04-17", "CD MARISTAS CCV - BLANCO", "CD RENEDO 2018"], [16, "2027-04-17", "CB VILLA DE LAGUNA - BLANCO", "EL PILAR"], [16, "2027-04-17", "BALONCESTO LA FLECHA - B", "LA ENSEÑANZA - B"], [16, "2027-04-17", "AYTO. SANTOVENIA", "LOURDES - BUJEDO"], [16, "2027-04-17", "TIERNO GALVAN", "SAN JOSE - IGNACIO"], [16, "2027-04-17", "SAN AGUSTIN", "APOSTOLADO - BLANCO"], [16, "2027-04-17", "LA SALLE", "BALONCESTO LA FLECHA - A"], [17, "2027-05-08", "APOSTOLADO - BLANCO", "TIERNO GALVAN"], [17, "2027-05-08", "BALONCESTO LA FLECHA - A", "SAN AGUSTIN"], [17, "2027-05-08", "BASKET LA CISTERNIGA", "LA SALLE"], [17, "2027-05-08", "CD MARISTAS CCV - AZUL", "IVECO CBC-ELALO - 2012"], [17, "2027-05-08", "CD RENEDO 2018", "CONDESA EYLO - OCIO-SPORT"], [17, "2027-05-08", "EL PILAR", "CD MARISTAS CCV - BLANCO"], [17, "2027-05-08", "LA ENSEÑANZA - B", "CB VILLA DE LAGUNA - BLANCO"], [17, "2027-05-08", "LOURDES - BUJEDO", "BALONCESTO LA FLECHA - B"], [17, "2027-05-08", "SAN JOSE - IGNACIO", "AYTO. SANTOVENIA"]]; // [jornada, "AAAA-MM-DD", local, visitante]
 const SK = [["p","Puntos","PTS"],["r","Rebotes","REB"],["t","Tapones","TAP"],["f","Faltas","FAL"]];

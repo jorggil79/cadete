@@ -238,7 +238,7 @@ T.acb_clasificacion = async () => {
 T.buscar_web = async a => {
   if (!a.consulta) return { error: "Falta la consulta." };
   const j = await gemini({ systemInstruction: { parts: [{ text: "Solo respondes sobre baloncesto. Si la consulta trata de cualquier otro tema, responde únicamente: FUERA_DE_TEMA. Si es de baloncesto, responde en español con datos concretos y actuales, en 1-3 frases; si no encuentras el dato, dilo." }] },
-    contents: [{ role: "user", parts: [{ text: a.consulta }] }], tools: [{ google_search: {} }], generationConfig: { temperature: .2, maxOutputTokens: 600 } });
+    contents: [{ role: "user", parts: [{ text: a.consulta }] }], tools: [{ google_search: {} }], generationConfig: { temperature: .2 } });
   const c = j.candidates && j.candidates[0];
   const text = c && c.content && c.content.parts ? c.content.parts.map(p => p.text || "").join("").trim() : "";
   const fuentes = ((c && c.groundingMetadata && c.groundingMetadata.groundingChunks) || []).map(g => g.web).filter(w => w && w.uri).slice(0, 4).map(w => ({ titulo: w.title || "fuente", url: w.uri }));
@@ -275,33 +275,62 @@ async function runTool(name, args) {
 /* ====================== Gemini ====================== */
 class AiErr extends Error { constructor(m, status) { super(m); this.status = status; } }
 async function gfetch(url, opts) {
-  let r; try { r = await fetch(url, opts); } catch (e) { throw new AiErr("Sin conexión con Gemini.", 0); }
+  const ctl = typeof AbortController !== "undefined" ? new AbortController() : null, to = ctl ? setTimeout(() => ctl.abort(), 40000) : null;   // sin respuesta en 40 s: se corta (y se prueba otro modelo)
+  let r; try { r = await fetch(url, ctl ? { ...opts, signal: ctl.signal } : opts); }
+  catch (e) { if (to) clearTimeout(to); const ab = e && e.name === "AbortError"; throw new AiErr(ab ? "Gemini no responde (tiempo agotado)." : "Sin conexión con Gemini.", ab ? 504 : 0); }
   let j = null; try { j = await r.json(); } catch (e) {}
+  if (to) clearTimeout(to);
   if (!r.ok) throw new AiErr(String((j && j.error && (j.error.message || j.error)) || ("Error " + r.status)).slice(0, 200), r.status);
   return j;
 }
-let modelCache = "";
-async function pickModel(key) {
-  if (modelCache) return modelCache;
+let modelList = null, modelIdx = 0, modelCache = "", modelAt = 0;   // modelos candidatos por orden de preferencia, el que funciona, su nombre y desde cuándo
+const resetModels = () => { modelList = null; modelIdx = 0; modelCache = ""; modelAt = 0; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function listModels(key) {
+  if (modelList) return modelList;
   const j = await gfetch("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", { headers: { "x-goog-api-key": key } });
   const ms = (j.models || []).filter(m => (m.supportedGenerationMethods || []).includes("generateContent") && /gemini/.test(m.name) && !/(image|tts|live|audio|embed|robotics|computer|vision|learnlm|gemma|native)/.test(m.name)).map(m => m.name.replace("models/", ""));
   if (!ms.length) throw new AiErr("Tu clave de Gemini no tiene modelos disponibles.", 404);
   const score = n => { const v = parseFloat((n.match(/gemini-(\d+(?:\.\d+)?)/) || [])[1] || 0); return v * 100 + (/flash/.test(n) ? 10 : 0) - (/lite/.test(n) ? 4 : 0) - (/preview|exp/.test(n) ? 1 : 0); };
-  modelCache = ms.includes("gemini-flash-latest") ? "gemini-flash-latest" : ms.sort((a, b) => score(b) - score(a))[0];
-  return modelCache;
+  const sorted = ms.slice().sort((a, b) => score(b) - score(a)), order = [], add = n => { if (n && ms.includes(n) && !order.includes(n)) order.push(n); };
+  // Primero el alias «flash» más reciente, luego otros flash, luego los «lite» (más ligeros: suelen tener hueco cuando el flash está saturado) y por último el resto
+  add("gemini-flash-latest");
+  sorted.filter(n => /flash/.test(n) && !/lite/.test(n)).slice(0, 2).forEach(add);
+  add("gemini-flash-lite-latest");
+  sorted.filter(n => /lite/.test(n)).slice(0, 1).forEach(add);
+  sorted.forEach(add);
+  modelList = order.slice(0, 6);
+  return modelList;
 }
+// Gemini gratuito se satura a ratos (503) o agota la cuota de un modelo (429): se reintenta y se prueba con el siguiente modelo
 async function gemini(body) {
   const key = getKey();
   if (!key) throw new AiErr("NOKEY", 0);
-  const model = await pickModel(key);
-  try {
-    return await gfetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-      { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(body) });
-  } catch (e) { if (e.status === 404) modelCache = ""; throw e; }
+  const list = await listModels(key);
+  let last = null;
+  const from = Date.now() - modelAt > 300000 ? 0 : modelIdx;   // pasados 5 min se vuelve a intentar con el mejor modelo
+  for (let k = 0; k < Math.min(list.length, 4); k++) {
+    const i = (from + k) % list.length, model = list[i];
+    for (let intento = 0; intento < 2; intento++) {
+      try {
+        const r = await gfetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+          { method: "POST", headers: { "Content-Type": "application/json", "x-goog-api-key": key }, body: JSON.stringify(body) });
+        modelIdx = i; modelCache = model; modelAt = Date.now(); return r;
+      } catch (e) {
+        last = e;
+        if (e.status === 404) break;                                  // ese modelo no está disponible con esta clave: siguiente
+        if (![429, 500, 502, 503, 504].includes(e.status)) throw e;   // sin conexión, clave mala, petición mala…: cambiar de modelo no lo arregla
+        if (intento === 0 && e.status !== 429) { await sleep(700); continue; }   // saturación: un reintento corto con el mismo modelo
+        break;                                                        // cuota agotada o sigue saturado: siguiente modelo
+      }
+    }
+  }
+  throw last || new AiErr("Sin modelos disponibles.", 503);
 }
 function errMsg(e) {
   if (e.message === "NOKEY") return "Todavía no tengo clave de Gemini. El administrador puede añadirla en Ajustes → PATO.";
   if (e.status === 429) return "He alcanzado el límite gratuito de Gemini. Prueba de nuevo en un minuto.";
+  if (e.status === 503 || e.status === 500 || e.status === 502 || e.status === 504 || /high demand|overloaded/i.test(e.message)) return "Gemini está saturado ahora mismo (el plan gratuito se llena a ratos y suele pasar solo). Prueba de nuevo en un minuto.";
   if (e.status === 400 && /api key/i.test(e.message)) return "La clave de Gemini no es válida. Revísala en Ajustes → PATO.";
   if (e.status === 403) return "Gemini ha rechazado la clave (permisos o restricciones). Revísala en Ajustes → PATO.";
   return "No he podido consultar la IA: " + e.message;
@@ -321,14 +350,18 @@ let hist = [];
 async function ask(text, onStep) {
   const contents = [...hist.slice(-12), { role: "user", parts: [{ text }] }];
   const usadas = new Set(), fuentesWeb = [];
-  for (let step = 0; step < 6; step++) {
+  let vacios = 0;
+  for (let step = 0; step < 7; step++) {
     const j = await gemini({ systemInstruction: { parts: [{ text: systemPrompt() }] }, contents,
-      tools: [{ functionDeclarations: DECLS }], generationConfig: { temperature: .3, maxOutputTokens: 900 } });
+      tools: [{ functionDeclarations: DECLS }], generationConfig: { temperature: .3 } });   // sin tope de tokens: los modelos que «piensan» gastan parte del tope y devolverían la respuesta vacía
     const cand = j.candidates && j.candidates[0], parts = (cand && cand.content && cand.content.parts) || [];
     const calls = parts.filter(p => p.functionCall);
     if (!calls.length) {
-      const out = parts.map(p => p.text || "").join("").replace(/\*\*|__|^#+\s*/gm, "").trim();
-      if (!out) throw new AiErr("La IA no ha devuelto respuesta" + (j.promptFeedback && j.promptFeedback.blockReason ? " (bloqueada)" : "") + ".", 0);
+      const out = parts.filter(p => !p.thought).map(p => p.text || "").join("").replace(/\*\*|__|^#+\s*/gm, "").trim();
+      if (!out) {
+        if (++vacios <= 1) continue;   // a veces Gemini devuelve una respuesta vacía: se repite una vez
+        throw new AiErr("La IA no ha devuelto respuesta" + (j.promptFeedback && j.promptFeedback.blockReason ? " (bloqueada)" : cand && cand.finishReason ? " (motivo: " + cand.finishReason + ")" : "") + ". Inténtalo de nuevo.", 0);
+      }
       hist.push({ role: "user", parts: [{ text }] }, { role: "model", parts: [{ text: out }] }); hist = hist.slice(-16);
       return { text: out, usadas: [...usadas], fuentes: fuentesWeb };
     }
@@ -366,9 +399,11 @@ function speak(text) {
     const list = chunks(text.replace(/https?:\/\/\S+/g, "")); let i = 0;
     const next = () => {
       if (tok !== speakTok || i >= list.length) { res(); return; }
-      const u = new root.SpeechSynthesisUtterance(list[i++]); const v = pickVoice();
+      const txt = list[i++], u = new root.SpeechSynthesisUtterance(txt); const v = pickVoice();
       if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "es-ES";
-      u.rate = +pref.rate || 1; u.onend = next; u.onerror = () => res(); synth.speak(u);
+      // En algunos móviles el aviso de «fin» no llega nunca: se sigue igualmente pasado un tiempo razonable
+      let hecho = false; const fin = (cont) => { if (hecho) return; hecho = true; clearTimeout(to); cont ? next() : res(); }, to = setTimeout(() => fin(true), 4000 + txt.length * 110);
+      u.rate = +pref.rate || 1; u.onend = () => fin(true); u.onerror = () => fin(false); synth.speak(u);
     };
     next();
   });
@@ -381,31 +416,37 @@ function setState(s) {
   const mic = el("pato-mic"); if (mic) mic.classList.toggle("on", s === "listening");
 }
 function stopRec() { wantRec = false; const r = rec; rec = null; try { r && r.abort(); } catch (e) {} }
+const ANDROID = /android/i.test((root.navigator && root.navigator.userAgent) || "");
+// Aviso visible: dentro del chat si está abierto (en el móvil el aviso emergente suele pasar desapercibido) y, si no, como aviso emergente
+function hint(t) { const s = el("pato-sheet"); if (s && !s.classList.contains("hide")) bubble("a", t); else { try { ctx.toast(t); } catch (e) {} } }
 function startRec(mode) {
-  if (!SR) { ctx.toast("Este navegador no admite reconocimiento de voz. Usa Chrome o Edge, o escribe."); return false; }
+  if (!SR) { hint("Este navegador no admite reconocimiento de voz. Usa Chrome o Edge, o escribe tu pregunta."); return false; }
   stopRec(); recMode = mode; wantRec = true;
-  const me = new SR(); rec = me;
-  me.lang = "es-ES"; me.maxAlternatives = 1; me.continuous = mode === "wake"; me.interimResults = true;
+  const me = new SR(); rec = me; let oido = false, error = "";
+  // Android no admite el modo continuo: allí cada frase es una escucha nueva (se reinicia sola en el manos libres)
+  me.lang = "es-ES"; me.maxAlternatives = 1; me.continuous = mode === "wake" && !ANDROID; me.interimResults = true;
   me.onstart = () => { if (rec === me && !busy) setState("listening"); };
   me.onresult = e => {
-    if (rec !== me) return; fails = 0; let interim = "";
+    if (rec !== me) return; fails = 0; oido = true; let interim = "";
     for (let i = e.resultIndex; i < e.results.length; i++) { const t = e.results[i][0].transcript; if (e.results[i].isFinal) onFinal(t.trim()); else interim += t; }
     const l = el("pato-live"); if (l) l.textContent = interim;
   };
   me.onerror = e => {
-    if (rec !== me) return;
-    if (e.error === "not-allowed" || e.error === "service-not-allowed") { wantRec = false; setHF(false); ctx.toast("PATO necesita permiso de micrófono (ajustes del navegador)."); }
-    else if (e.error === "network") { fails++; if (fails === 1) ctx.toast("El reconocimiento de voz del navegador no puede conectar."); }
-    else if (e.error === "audio-capture") { wantRec = false; ctx.toast("No se detecta ningún micrófono."); }
+    if (rec !== me) return; error = e.error || "error";
+    if (e.error === "not-allowed" || e.error === "service-not-allowed") { wantRec = false; if (mode === "wake") setHF(false); hint("PATO no tiene permiso para usar el micrófono. Actívalo en los permisos del navegador o de la app (Micrófono) y vuelve a pulsar 🎙."); }
+    else if (e.error === "network") { fails++; if (fails === 1 || mode === "cmd") hint("El reconocimiento de voz necesita conexión a Internet y no consigue conectar."); }
+    else if (e.error === "audio-capture") { wantRec = false; hint("No se detecta ningún micrófono."); }
+    else if (e.error === "language-not-supported") { wantRec = false; hint("Este navegador no reconoce voz en español."); }
   };
   me.onend = () => {
     if (rec !== me) return;
     if (!busy && state === "listening") setState("idle");
     const l = el("pato-live"); if (l) l.textContent = "";
+    if (mode === "cmd" && !oido && !busy && (!error || error === "no-speech")) hint("No te he oído. Pulsa 🎙 y habla cerca del móvil, o escribe tu pregunta.");
     if (wantRec && recMode === "wake" && !busy && fails < 6) setTimeout(() => { if (wantRec && !busy && rec === me) startRec("wake"); }, 350 + fails * 400);
     else if (recMode === "cmd") wantRec = false;
   };
-  try { me.start(); return true; } catch (e) { return false; }
+  try { me.start(); return true; } catch (e) { hint("No he podido activar el micrófono: " + (e && e.message || e)); return false; }
 }
 function onFinal(t) {
   if (!t) return;
@@ -413,7 +454,7 @@ function onFinal(t) {
   const m = t.match(WAKE_RE);
   if (m) {
     const cmd = t.slice(m.index + m[0].length).replace(/^[\s,.:;¡!¿?-]+/, "");
-    if (cmd.length > 2) handle(cmd); else { armedUntil = Date.now() + 8000; chime(); openSheet(); const l = el("pato-live"); if (l) l.textContent = "Te escucho…"; }
+    if (cmd.length > 2) handle(cmd); else { armedUntil = Date.now() + 8000; if (!ANDROID) chime(); openSheet(); const l = el("pato-live"); if (l) l.textContent = "Te escucho…"; }
   } else if (Date.now() < armedUntil) { armedUntil = 0; handle(t); }
 }
 function chime() { try { const a = new (root.AudioContext || root.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.type = "sine"; o.frequency.value = 880; g.gain.value = .05; o.connect(g); g.connect(a.destination); o.start(); g.gain.exponentialRampToValueAtTime(.0001, a.currentTime + .18); o.stop(a.currentTime + .2); } catch (e) {} }
@@ -504,7 +545,7 @@ function micTap() {
   if (state === "speaking") { cancelSpeech(); setState("idle"); if (pref.hf) startRec("wake"); return; }
   if (busy) return;
   if (state === "listening" && recMode === "cmd") { stopRec(); setState("idle"); return; }
-  cancelSpeech(); armedUntil = 0; chime(); startRec("cmd");
+  cancelSpeech(); armedUntil = 0; if (!ANDROID) chime(); startRec("cmd");   // en Android el propio sistema ya avisa al empezar a escuchar
 }
 function build() {
   const d = root.document;
@@ -513,12 +554,16 @@ function build() {
   const sh = d.createElement("div"); sh.id = "pato-sheet"; sh.className = "hide"; sh.setAttribute("role", "dialog"); sh.setAttribute("aria-label", "PATO");
   sh.innerHTML = `<div class="ph"><b>${DUCK} PATO</b><span id="pato-st"></span><button class="chip" id="pato-hf">Manos libres: no</button><button id="pato-x" aria-label="Cerrar">×</button></div>
     <div id="pato-log"></div><div id="pato-live"></div>
-    <div class="pin"><button id="pato-mic" aria-label="Hablar">🎙</button><input id="pato-in" placeholder="Pregunta a PATO…" autocomplete="off" enterkeyhint="send"><button class="btn" id="pato-go">Enviar</button></div>`;
+    <form class="pin" id="pato-form" autocomplete="off"><button type="button" id="pato-mic" aria-label="Hablar">🎙</button><input id="pato-in" placeholder="Pregunta a PATO…" autocomplete="off" autocapitalize="sentences" enterkeyhint="send"><button type="submit" class="btn" id="pato-go">Enviar</button></form>`;
   d.body.appendChild(sh);
   fab.onclick = () => { const s = el("pato-sheet"); s.classList.contains("hide") ? openSheet() : closeSheet(); };
   el("pato-x").onclick = closeSheet; el("pato-mic").onclick = micTap; el("pato-hf").onclick = () => setHF(!pref.hf);
-  const send = () => { const i = el("pato-in"), t = i.value.trim(); if (!t) return; i.value = ""; handle(t); };
-  el("pato-go").onclick = send; el("pato-in").onkeydown = e => { if (e.key === "Enter") send(); };
+  // Formulario: así funciona la tecla «Enviar» del teclado del móvil. Se cierra el teclado al enviar para que se vea la respuesta.
+  el("pato-form").onsubmit = e => { e.preventDefault(); const i = el("pato-in"), t = i.value.trim(); if (!t) return; i.value = ""; i.blur(); handle(t); };
+  // Con el teclado del móvil abierto, el chat se sube y se ajusta a la parte visible de la pantalla
+  const vv = root.visualViewport;
+  if (vv) { const fit = () => { const kb = Math.max(0, Math.round(root.innerHeight - vv.height - vv.offsetTop)); sh.style.bottom = kb + "px"; sh.style.height = Math.min(Math.round(vv.height * (kb > 80 ? .94 : .78)), 640) + "px"; };
+    vv.addEventListener("resize", fit); vv.addEventListener("scroll", fit); root.addEventListener("orientationchange", () => setTimeout(fit, 300)); fit(); }
   d.addEventListener("visibilitychange", () => { if (d.visibilityState === "visible" && pref.hf) { lock(true); if (!wantRec && !busy) startRec("wake"); } });
 }
 
@@ -535,22 +580,24 @@ function settingsHtml() {
     <label class="f">${admin ? "Mi clave propia (opcional, solo este dispositivo)" : "Mi clave de Gemini (opcional, solo este dispositivo)"}<input class="txt" id="pk-l" type="password" value="${esc(pref.localKey)}" placeholder="AIza…" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
     <div class="row wrap" style="margin:6px 0"><button class="btn sec sm" id="pk-t">Probar PATO</button><span class="note" id="pk-r"></span></div>
     <label class="chk"><input type="checkbox" id="pk-sp" ${pref.speak ? "checked" : ""}><span>Que PATO responda hablando</span></label>
-    <label class="chk"><input type="checkbox" id="pk-hf" ${pref.hf ? "checked" : ""}><span>Manos libres: escuchar «Pato, …» (con la app abierta)</span></label>
+    <label class="chk"><input type="checkbox" id="pk-hf" ${pref.hf ? "checked" : ""}><span>Manos libres: escuchar «Pato, …» (con la app abierta; en Android es menos fiable: usa mejor el botón 🎙)</span></label>
     <label class="f">Voz<select class="big" id="pk-v"><option value="">Automática (español)</option>${vs.map(v => `<option value="${esc(v.name)}" ${v.name === pref.voice ? "selected" : ""}>${esc(v.name)}</option>`).join("")}</select></label></div>`;
 }
 function bindSettings(rootEl) {
   const q = id => rootEl.querySelector("#" + id);
   const on = (id, fn, ev) => { const e = q(id); if (e) e[ev || "onclick"] = fn; };
-  on("pk-l", () => { pref.localKey = q("pk-l").value.trim(); modelCache = ""; savePref(); }, "onchange");
+  on("pk-l", () => { pref.localKey = q("pk-l").value.trim(); resetModels(); savePref(); }, "onchange");
   on("pk-sp", () => { pref.speak = q("pk-sp").checked; savePref(); }, "onchange");
   on("pk-hf", () => setHF(q("pk-hf").checked), "onchange");
   on("pk-v", () => { pref.voice = q("pk-v").value; savePref(); }, "onchange");
-  on("pk-ss", () => { const k = q("pk-s").value.trim(); if (k.length < 20) { ctx.toast("Pega la clave de Gemini completa"); return; } modelCache = ""; ctx.saveShared({ gKey: k }); });
-  on("pk-sx", () => { if (confirm("¿Quitar la clave compartida? PATO dejará de funcionar para quien no tenga clave propia.")) { modelCache = ""; ctx.clearShared(); } });
+  on("pk-ss", () => { const k = q("pk-s").value.trim(); if (k.length < 20) { ctx.toast("Pega la clave de Gemini completa"); return; } resetModels(); ctx.saveShared({ gKey: k }); });
+  on("pk-sx", () => { if (confirm("¿Quitar la clave compartida? PATO dejará de funcionar para quien no tenga clave propia.")) { resetModels(); ctx.clearShared(); } });
   on("pk-t", async () => {
     const out = q("pk-r"); out.textContent = "Probando…"; out.style.color = "";
-    try { const j = await gemini({ contents: [{ role: "user", parts: [{ text: "Responde solo con la palabra: listo" }] }], generationConfig: { maxOutputTokens: 20 } });
-      out.textContent = "✓ Funciona (" + modelCache + ")"; out.style.color = "var(--ok)"; }
+    try { const j = await gemini({ contents: [{ role: "user", parts: [{ text: "Responde solo con la palabra: listo" }] }], generationConfig: { temperature: 0 } });
+      const c = j.candidates && j.candidates[0], t = c && c.content && c.content.parts ? c.content.parts.filter(p => !p.thought).map(p => p.text || "").join("").trim() : "";
+      if (t) { out.textContent = "✓ Funciona (" + modelCache + "): «" + t.slice(0, 40) + "»"; out.style.color = "var(--ok)"; }
+      else { out.textContent = "✗ Gemini (" + modelCache + ") responde pero sin texto" + (c && c.finishReason ? " (motivo: " + c.finishReason + ")" : "") + ". Vuelve a probar."; out.style.color = "var(--bad)"; } }
     catch (e) { out.textContent = "✗ " + errMsg(e); out.style.color = "var(--bad)"; }
   });
 }
@@ -565,5 +612,5 @@ function init(c) {
   if (pref.hf && SR) setHF(true);
 }
 function stop() { started = false; stopRec(); cancelSpeech(); lock(false); busy = false; hist = []; const s = el("pato-sheet"); if (s) { s.classList.add("hide"); const l = el("pato-log"); if (l) l.innerHTML = ""; } setState("idle"); }
-root.Pato = { init, stop, settingsHtml, bindSettings, _t: { T, DECLS, teamMatches, pickGames, tablaPorPartidos, ask, runTool, boxHits, parseEvent, systemPrompt, setCtx: c => { ctx = c; }, setKey: k => { pref.localKey = k; modelCache = ""; }, resetHist: () => { hist = []; } } };
+root.Pato = { init, stop, settingsHtml, bindSettings, _t: { T, DECLS, teamMatches, pickGames, tablaPorPartidos, ask, runTool, boxHits, parseEvent, systemPrompt, setCtx: c => { ctx = c; }, setKey: k => { pref.localKey = k; resetModels(); }, resetHist: () => { hist = []; } } };
 })(typeof window !== "undefined" ? window : globalThis);
